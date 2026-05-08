@@ -16,6 +16,10 @@ function prompt_mandy() {
   p10k segment -f 33 -t 'mandy'
 }
 
+# VIM Mode Toggle
+# Uncomment the line below to enable VIM mode by default
+# export MANDY_VIM=1
+
 # Add mandy to the right prompt elements if p10k is active in Zsh
 if [ -n "$ZSH_VERSION" ] && [ -n "$P9K_VERSION" ]; then
   if [[ ${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[(I)mandy]} -eq 0 ]]; then

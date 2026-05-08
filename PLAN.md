@@ -2,17 +2,19 @@
 
 Manual Discovery (**Mandy**) tool using Node/TypeScript and YAMLScript.
 
-## Status: 95% Complete
+## Status: 100% Complete (Alpha 0.1)
 
 - [x] **Environment & Dependencies**
     - [x] Node.js/TypeScript setup
-    - [x] `@yaml/yamlscript` and `enquirer` integration
+    - [x] `@yaml/yamlscript` and `terminal-kit` integration
     - [x] ZDOTDIR-based development shell
 - [x] **Core CLI Logic**
     - [x] Fetch man pages with `man | col -b`
     - [x] **YAMLScript Pivot**: Use YS to define parsing strategy (sections)
     - [x] **Extraction**: Heuristic extraction of command variants from SYNOPSIS/EXAMPLES
-    - [x] **Selection**: Interactive TUI selection with `enquirer`
+    - [x] **Interactive TUI**: Full-text scrollable view with `terminal-kit`
+    - [x] **VIM Mode**: VIM-style status line and keybindings (`j`, `k`, `g`, `G`, `q`, etc.) with `MANDY_VIM` env var toggle
+    - [x] **Selection**: Mouse clicks and Tab-navigation for commands
     - [x] **Buffer**: Write selected command to `/tmp/mandy_buffer`
     - [x] **Auto-Detect**: Provide JSON output in non-interactive environments
 - [x] **Shell Integration**
@@ -21,11 +23,13 @@ Manual Discovery (**Mandy**) tool using Node/TypeScript and YAMLScript.
     - [x] Automatic integration via `npm run shell`
 - [x] **Mandy Home Manifest**
     - [x] Implement `mandy` (no args) to output a YAML manifest of available tools/plugins
-- [ ] **Packaging**
+- [x] **Packaging**
     - [x] `package.json` bin configuration
-    - [ ] Final `npm link` testing
+    - [x] Global linking with `npm link`
 
-## Next Steps
-1. Implement the Home Manifest (YAML output when no args provided).
-2. Refine the command extraction heuristics (handle multi-line synopsis better).
-3. Finalize README and installation instructions.
+
+## Next Steps (Beta 0.2)
+1. Refine the command extraction heuristics (handle multi-line synopsis better).
+2. Add support for local man page file parsing.
+3. Add search functionality within the TUI.
+

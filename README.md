@@ -45,6 +45,13 @@ mandy git commit
 mandy ls
 ```
 
+## ⌨️ Modes
+Mandy supports two interface modes:
+- **Default (Nano-style)**: Familiar shortcuts like `^X` to exit.
+- **VIM Mode**: VIM status line and keybindings (`j`, `k`, `g`, `G`, `q`, etc.).
+    - Enable via flag: `mandy --vim <cmd>`
+    - Enable via env var: `export MANDY_VIM=1` (Toggle this in your `.mandyrc`)
+
 ## 🔄 Development Loop
 Since Mandy is linked to your source, your workflow is:
 1. **Edit** `src/index.ts` or `plugins/base.ys`.

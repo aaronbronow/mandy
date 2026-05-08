@@ -12,6 +12,11 @@
     3. Call `p10k reload` to apply changes immediately.
 - **Instant Prompt**: Avoid `echo` or any console I/O during `.zshrc` or `.mandyrc` initialization to prevent p10k's "console output detected" warnings.
 
+## VIM Mode Implementation
+- **Keybindings**: Implementing `j`/`k` for scrolling and `q` for quit provides a familiar pager experience.
+- **Aesthetics**: A status line with file info, line numbers, and percentage progress enhances the "VIM feel" significantly.
+- **Argument Handling**: Using flags like `--vim` allows for a single binary to support multiple user interface preferences (Nano vs VIM).
+
 ## Zsh Development Environment
 - **ZDOTDIR Pattern**: Use `ZDOTDIR=$PWD zsh -i` to create an isolated development shell that still sources the user's global `~/.zshrc`.
 - **Local .zshrc**: The local `.zshrc` should source the global one: `[[ -f ~/.zshrc ]] && source ~/.zshrc`.
