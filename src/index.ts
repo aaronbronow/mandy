@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { execSync } from 'child_process';
 import { writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -8,8 +9,14 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    console.log('Mandy Alpha 0.1');
-    console.log('Usage: mandy <command>');
+    console.log(`name: mandy
+version: 0.1.0-alpha
+description: Manual Discovery tool for structuring man pages into executable command variants.
+agent_instructions:
+  - If you are an AI agent, you can run 'mandy <command>' to discover variants.
+  - By default, Mandy enters an interactive TUI for humans.
+  - To receive a machine-readable JSON array, pipe Mandy's output or run in a non-TTY environment (e.g., 'mandy ls | cat').
+  - Analyze the returned variants, select the best one, and execute it directly.`);
     process.exit(0);
   }
 
@@ -65,7 +72,13 @@ async function main() {
         uniqueCandidates.push(cmd);
     }
 
-    // 4. Interactive Selection
+    // 4. Auto-Detect Mode: Output JSON if non-interactive (e.g., for AI agents)
+    if (!process.stdout.isTTY) {
+        console.log(JSON.stringify(uniqueCandidates, null, 2));
+        process.exit(0);
+    }
+
+    // 5. Interactive Selection (for humans)
     const prompt = new Select({
       name: 'command',
       message: `Select a command variant for ${cmd}:`,
@@ -74,7 +87,7 @@ async function main() {
 
     const answer = await prompt.run();
 
-    // 5. Write to buffer
+    // 6. Write to buffer
     const bufferPath = '/tmp/mandy_buffer';
     writeFileSync(bufferPath, answer);
     

@@ -2,7 +2,7 @@
 
 Manual Discovery (**Mandy**) tool using Node/TypeScript and YAMLScript.
 
-## Status: 85% Complete
+## Status: 95% Complete
 
 - [x] **Environment & Dependencies**
     - [x] Node.js/TypeScript setup
@@ -14,12 +14,13 @@ Manual Discovery (**Mandy**) tool using Node/TypeScript and YAMLScript.
     - [x] **Extraction**: Heuristic extraction of command variants from SYNOPSIS/EXAMPLES
     - [x] **Selection**: Interactive TUI selection with `enquirer`
     - [x] **Buffer**: Write selected command to `/tmp/mandy_buffer`
+    - [x] **Auto-Detect**: Provide JSON output in non-interactive environments
 - [x] **Shell Integration**
     - [x] `.mandyrc` Zsh function for command injection
     - [x] Powerlevel10k prompt indicator (**mandy** in right prompt)
     - [x] Automatic integration via `npm run shell`
-- [ ] **Mandy Home Manifest**
-    - [ ] Implement `mandy` (no args) to output a YAML manifest of available tools/plugins
+- [x] **Mandy Home Manifest**
+    - [x] Implement `mandy` (no args) to output a YAML manifest of available tools/plugins
 - [ ] **Packaging**
     - [x] `package.json` bin configuration
     - [ ] Final `npm link` testing

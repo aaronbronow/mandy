@@ -16,8 +16,8 @@ function prompt_mandy() {
   p10k segment -f 33 -t 'mandy'
 }
 
-# Add mandy to the right prompt elements if p10k is active
-if (( ${+P9K_VERSION} )); then
+# Add mandy to the right prompt elements if p10k is active in Zsh
+if [ -n "$ZSH_VERSION" ] && [ -n "$P9K_VERSION" ]; then
   if [[ ${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[(I)mandy]} -eq 0 ]]; then
     typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(mandy "${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[@]}")
     p10k reload
