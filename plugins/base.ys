@@ -1,0 +1,4 @@
+!yamlscript/v0
+# Mandy Base Plugin
+# Returns the list of sections we care about
+vector("SYNOPSIS", "EXAMPLES")

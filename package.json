@@ -1,0 +1,36 @@
+{
+  "name": "mandy",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "bin": {
+    "mandy": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/index.ts",
+    "shell": "ZDOTDIR=$PWD zsh -i",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aaronbronow/mandy.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/aaronbronow/mandy/issues"
+  },
+  "homepage": "https://github.com/aaronbronow/mandy#readme",
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@yaml/yamlscript": "^0.2.8",
+    "enquirer": "^2.4.1"
+  }
+}

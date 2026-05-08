@@ -1,0 +1,27 @@
+# Mandy Shell Integration (Zsh)
+# Source this file to enable the 'mandy' command
+
+mandy() {
+  local mandy_root="/home/aaron/dev/mandy"
+  node "$mandy_root/dist/index.js" "$@"
+  if [ -f /tmp/mandy_buffer ]; then
+    local cmd=$(cat /tmp/mandy_buffer)
+    rm /tmp/mandy_buffer
+    print -z "$cmd"
+  fi
+}
+
+# Define a custom p10k segment for Mandy
+function prompt_mandy() {
+  p10k segment -f 33 -t 'mandy'
+}
+
+# Add mandy to the right prompt elements if p10k is active
+if (( ${+P9K_VERSION} )); then
+  if [[ ${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[(I)mandy]} -eq 0 ]]; then
+    typeset -g POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(mandy "${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS[@]}")
+    p10k reload
+  fi
+fi
+
+export MANDY_SHELL=1
