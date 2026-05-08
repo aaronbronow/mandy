@@ -2,7 +2,7 @@
 
 Manual Discovery (**Mandy**) tool using Node/TypeScript and YAMLScript.
 
-## Status: 100% Complete (Alpha 0.1)
+## Status: 100% Complete (Alpha 0.1+)
 
 - [x] **Environment & Dependencies**
     - [x] Node.js/TypeScript setup
@@ -11,12 +11,13 @@ Manual Discovery (**Mandy**) tool using Node/TypeScript and YAMLScript.
 - [x] **Core CLI Logic**
     - [x] Fetch man pages with `man | col -b`
     - [x] **YAMLScript Pivot**: Use YS to define parsing strategy (sections)
-    - [x] **Extraction**: Heuristic extraction of command variants from SYNOPSIS/EXAMPLES
-    - [x] **Interactive TUI**: Full-text scrollable view with `terminal-kit`
+    - [x] **Extraction**: Regex-based token extraction (flags & synopsis elements)
+    - [x] **Command Builder UI**: Interactive full-text builder with persistent bar
+    - [x] **Focus States**: TEXT_AREA vs BUILDER_BAR logic
     - [x] **VIM Mode**: VIM-style status line and keybindings (`j`, `k`, `g`, `G`, `q`, etc.) with `MANDY_VIM` env var toggle
-    - [x] **Selection**: Mouse clicks and Tab-navigation for commands
-    - [x] **Buffer**: Write selected command to `/tmp/mandy_buffer`
-    - [x] **Auto-Detect**: Provide JSON output in non-interactive environments
+    - [x] **Selection**: Mouse clicks and Tab-navigation for tokens
+    - [x] **Buffer**: Write built command to `/tmp/mandy_buffer`
+    - [x] **Auto-Detect**: Provide JSON array of tokens in non-interactive environments
 - [x] **Shell Integration**
     - [x] `.mandyrc` Zsh function for command injection
     - [x] Powerlevel10k prompt indicator (**mandy** in right prompt)
