@@ -32,3 +32,9 @@
 - **Source Map Preservation**: When offloading parsing to a separate script/process, you must explicitly track and pass original line indices if the UI needs to correlate data back to the original source text.
 - **Unified Build System**: A `Makefile` is essential for orchestrating multi-language projects (Clojure, TypeScript, GraalVM). It provides a single source of truth for complex build pipelines that `package.json` alone cannot handle gracefully.
 - **GraalVM Native Image**: Compiling Clojure to native binaries provides sub-10ms startup times and zero-dependency distribution, making JVM-based languages viable for performance-critical CLI tools.
+
+## Agentic Discovery (Alpha 0.4)
+- **Multiline Context Reduction**: A state-carrying `reduce` is the most effective functional pattern for associating flag tokens with description text on subsequent lines. It avoids complex data nesting while preserving infinite look-behind for descriptions.
+- **Handshake 2.0 (Temp Files)**: Passing data through `stdin` to a child process effectively consumes the terminal's input stream, breaking TUI interactivity. Using a temporary file for the data handshake while inheriting `stdin` from the parent allows the child process to receive real-time TTY events (keystrokes/mouse).
+- **Universal Token Extraction**: Removing positional restrictions (like `startsWith('-')`) on token extraction allows flags to be identified and interactive anywhere in a document, including within prose and explanatory notes.
+- **Word Boundary Regex**: Enforcing `\b` word boundaries in substring searches is critical for reducing false positives (e.g., preventing a search for "log" from matching "logical").
