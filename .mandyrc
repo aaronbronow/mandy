@@ -3,6 +3,8 @@
 
 mandy() {
   local mandy_root="/home/aaron/dev/mandy"
+  # Clear any stale buffer from previous runs
+  rm -f /tmp/mandy_buffer
   # Use the Clojure entry point which handles parsing and handoff to Node.js
   clj -M -m mandy.main "$@"
   if [ -f /tmp/mandy_buffer ]; then
