@@ -1,4 +1,4 @@
-# 🌿 Mandy (Manual Discovery) Alpha 0.1
+# 🌿 Mandy (Manual Discovery) Alpha 0.2
 
 Mandy is a manual discovery tool that turns crusty man pages into structured, interactive command injectors. It uses **YAMLScript** for high-level parsing and **TypeScript** for the TUI magic.
 
@@ -33,7 +33,7 @@ npm run shell
 *Once inside, the `mandy` command is live (via a shell function that enables prompt injection) and you'll see a blue `mandy` indicator in your right prompt.*
 
 ## 🛠 Project Structure
-- `src/index.ts`: The TUI and CLI brain.
+- `src/index.ts`: The TUI and CLI brain with **Source Map Architecture**.
 - `plugins/base.ys`: The YAMLScript strategy for parsing man pages.
 - `.mandyrc`: The shell bridge for prompt injection.
 
@@ -51,6 +51,12 @@ Mandy supports two interface modes:
 - **VIM Mode**: VIM status line and keybindings (`j`, `k`, `g`, `G`, `q`, etc.).
     - Enable via flag: `mandy --vim <cmd>`
     - Enable via env var: `export MANDY_VIM=1` (Toggle this in your `.mandyrc`)
+
+## 🖥 Unified Interactive View
+Mandy provides two perspectives on the manual, both fully interactive:
+- **Man View (Default)**: The familiar, formatted manual.
+- **YAML View (`Y`)**: A structured YAMLScript document preserving all raw formatting.
+*Both views share the same Command Builder state—tab through tokens and hit Enter to build your command from either perspective.*
 
 ## 🔄 Development Loop
 Since Mandy is linked to your source, your workflow is:

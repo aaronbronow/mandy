@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 import { execSync } from 'child_process';
-import { writeFileSync, readFileSync, unlinkSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 // @ts-ignore
 import { terminal as term } from 'terminal-kit';
 import * as yaml from 'js-yaml';
 
+interface LineMap {
+    originalIndex: number;
+    text: string;
+}
+
 interface Token {
     text: string;
-    line: number;
-    startCol: number;
+    line: number;      // Original Man line index
+    startCol: number; // Original Man start column
+    yamlLine: number;  // YAML view line index
 }
 
 enum FocusArea {
@@ -53,104 +59,101 @@ async function main() {
     }
 
     try {
-        // 1. Fetch Man page
+        // 1. Fetch Man page (Model A: The Visuals)
         const manContentRaw = execSync(`man ${cmd} | col -b`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
         const unstrippedLines = manContentRaw.split('\n');
-        
-        let processedLines = unstrippedLines;
-        if (isStripMode) {
-            processedLines = processedLines
-                .map(l => l.replace(/\s+/g, ' ').trim())
-                .filter(l => l !== '');
+
+        // 2. Generate the Source Map (Bridge)
+        const sourceMap: LineMap[] = [];
+        for (let i = 0; i < unstrippedLines.length; i++) {
+            const original = unstrippedLines[i]!;
+            const sanitized = original.replace(/\s+/g, ' ').trim();
+            if (sanitized !== '') {
+                sourceMap.push({ originalIndex: i, text: sanitized });
+            }
         }
 
-        // 2. Structured Parsing (Source of Truth)
-        const structured: any[] = processedLines.reduce((acc: any[], line) => {
+        // 3. Structured Parsing (Source of Truth)
+        // Model B: Unsanitized Structured Document (Preserves all lines/formatting)
+        const structuredUnsanitized: any[] = unstrippedLines.reduce((acc: any[], line, i) => {
             const trimmed = line.trim();
+            const lm: LineMap = { originalIndex: i, text: line };
             if (/^[A-Z][A-Z\s]{2,}$/.test(trimmed)) {
                 acc.push({ [trimmed]: [] });
             } else {
                 const last = acc[acc.length - 1];
                 const key = Object.keys(last)[0]!;
-                last[key].push(line);
+                last[key].push(lm);
             }
             return acc;
         }, [{ "PREAMBLE": [] }]);
 
-        // Generate high-fidelity YAML string
-        let yamlContent = "!yamlscript/v0/data\n" + yaml.dump(structured, { noRefs: true, lineWidth: -1 });
+        // Model C: Sanitized Structured Document (For Token Extraction)
+        const structuredSanitized: any[] = sourceMap.reduce((acc: any[], lineMap) => {
+            const text = lineMap.text;
+            if (/^[A-Z][A-Z\s]{2,}$/.test(text)) {
+                acc.push({ [text]: [] });
+            } else {
+                const last = acc[acc.length - 1];
+                const key = Object.keys(last)[0]!;
+                last[key].push(lineMap);
+            }
+            return acc;
+        }, [{ "PREAMBLE": [] }]);
+
+        // Generate High-Fidelity YAML with YAML Source Map
+        const yamlLines: string[] = ["!yamlscript/v0/data"];
+        const originalLineToYamlIndex = new Map<number, number>();
+
+        for (const section of structuredUnsanitized) {
+            const key = Object.keys(section)[0]!;
+            const sectionLineMaps = section[key] as LineMap[];
+            yamlLines.push(`- ${key}:`);
+            for (const lm of sectionLineMaps) {
+                originalLineToYamlIndex.set(lm.originalIndex, yamlLines.length);
+                // Basic YAML string escaping for the lines
+                const escaped = lm.text.replace(/'/g, "''");
+                yamlLines.push(`    - '${escaped}'`);
+            }
+        }
         
         if (isDebugMode) {
-            console.log(yamlContent);
+            console.log(yamlLines.join('\n'));
             process.exit(0);
         }
 
-        const yamlLines = yamlContent.split('\n');
-
-        // 3. Extract Valid Tokens from Structured Data
-        const validFlags = new Set<string>();
-        
+        // 4. Token Extraction via Source Map (Operating on Model C)
+        const extractedTokens: Token[] = [];
         const flagExtractRegex = /(?:^|\s|,)(-{1,2}[a-zA-Z0-9-]+)/g;
 
-        for (const section of structured) {
+        for (const section of structuredSanitized) {
             const key = Object.keys(section)[0]!;
-            const sectionLines = section[key] as string[];
+            const sectionLineMaps = section[key] as LineMap[];
             
-            if (key !== 'SYNOPSIS') {
-                for (const line of sectionLines) {
-                    const trimmed = line.trim();
-                    if (trimmed.startsWith('-')) {
-                        let matches;
-                        while ((matches = flagExtractRegex.exec(trimmed)) !== null) {
-                            validFlags.add(matches[1]!);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. Map Tokens to the Unstripped UI Lines
-        const lines = unstrippedLines; // UI always shows the formatted manual
-        const tokens: Token[] = [];
-        let currentHeader = '';
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i]!;
-            const trimmed = line.trim();
-
-            if (/^[A-Z][A-Z\s]{2,}$/.test(trimmed)) {
-                currentHeader = trimmed;
-                continue;
-            }
-
-            // Skip tokens in SYNOPSIS for this version
-            if (currentHeader !== 'SYNOPSIS') {
-                // Highlight flags only where they are defined (line starts with '-')
-                if (trimmed.startsWith('-')) {
-                    for (const flag of validFlags) {
-                        // Match flag as a distinct word to avoid partial matches
-                        const regex = new RegExp(`(^|\\s|,)(${flag})(?=[ \\t\\n=,\\[]|$)`, 'g');
+            if (key !== 'SYNOPSIS' && key !== 'PREAMBLE') {
+                for (const lm of sectionLineMaps) {
+                    if (lm.text.startsWith('-')) {
                         let match;
-                        while ((match = regex.exec(line)) !== null) {
-                            const text = match[2]!;
-                            const index = line.indexOf(text, match.index);
-                            tokens.push({ text, line: i, startCol: index });
+                        while ((match = flagExtractRegex.exec(lm.text)) !== null) {
+                            const flagText = match[1]!;
+                            const originalLine = unstrippedLines[lm.originalIndex]!;
+                            const originalCol = originalLine.indexOf(flagText);
+                            if (originalCol !== -1) {
+                                extractedTokens.push({
+                                    text: flagText,
+                                    line: lm.originalIndex,
+                                    startCol: originalCol,
+                                    yamlLine: originalLineToYamlIndex.get(lm.originalIndex) || -1
+                                });
+                            }
                         }
                     }
                 }
             }
         }
 
-        const uniqueTokens: Token[] = [];
-        const seenPos = new Set<string>();
-        for (const t of tokens) {
-            const key = `${t.line}:${t.startCol}`;
-            if (!seenPos.has(key)) {
-                uniqueTokens.push(t);
-                seenPos.add(key);
-            }
-        }
-        uniqueTokens.sort((a, b) => a.line - b.line || a.startCol - b.startCol);
+        const uniqueTokens = extractedTokens.sort((a, b) => a.line - b.line || a.startCol - b.startCol)
+            .filter((t, i, arr) => !i || (t.line !== arr[i-1]!.line || t.startCol !== arr[i-1]!.startCol));
 
         // 5. Auto-Detect Mode
         if (!process.stdout.isTTY) {
@@ -182,7 +185,7 @@ async function main() {
             const width = term.width;
             const height = term.height - 3;
 
-            const currentLines = viewMode === ViewMode.MAN ? lines : yamlLines;
+            const currentLines = viewMode === ViewMode.MAN ? unstrippedLines : yamlLines;
             let currentOffset = viewMode === ViewMode.MAN ? offsetY : yamlOffsetY;
 
             if (currentOffset < 0) currentOffset = 0;
@@ -203,37 +206,37 @@ async function main() {
 
                 const line = currentLines[lineIdx]!;
 
-                if (viewMode === ViewMode.MAN) {
-                    const lineTokens = uniqueTokens.filter(t => t.line === lineIdx);
-                    if (lineTokens.length > 0) {
-                        let lastCol = 0;
-                        term.eraseLine();
-                        for (const t of lineTokens) {
-                            term(line.substring(lastCol, t.startCol));
+                // Token Logic for both views
+                const lineTokens = uniqueTokens.filter(t => (viewMode === ViewMode.MAN ? t.line : t.yamlLine) === lineIdx);
+                if (lineTokens.length > 0) {
+                    let lastCol = 0;
+                    term.eraseLine();
+                    for (const t of lineTokens) {
+                        // Find where the token text is in the current line
+                        // In YAML view, it might be wrapped in quotes
+                        const displayIdx = line.indexOf(t.text, lastCol);
+                        if (displayIdx !== -1) {
+                            term(line.substring(lastCol, displayIdx));
                             const isPrimary = uniqueTokens.indexOf(t) === activeIndex && focusArea === FocusArea.TEXT_AREA;
                             if (isPrimary) {
-                                term.bgGreen.black(line.substring(t.startCol, t.startCol + t.text.length));
+                                term.bgGreen.black(t.text);
                             } else {
-                                term.bgBlue.white(line.substring(t.startCol, t.startCol + t.text.length));
+                                term.bgBlue.white(t.text);
                             }
-                            lastCol = t.startCol + t.text.length;
+                            lastCol = displayIdx + t.text.length;
                         }
-                        term(line.substring(lastCol, lastCol + (width - lastCol)));
-                    } else {
-                        term.eraseLine();
-                        term(line.substring(0, width));
                     }
+                    term(line.substring(lastCol, lastCol + (width - lastCol)));
                 } else {
-                    // YAML View: High-contrast syntax highlighting
                     term.eraseLine();
-                    const trimmed = line.trim();
-                    if (trimmed.startsWith('!yamlscript')) {
-                        term.magenta(line.substring(0, width));
-                    } else if (trimmed.startsWith('- ')) {
-                        term.cyan('- ').white(line.substring(line.indexOf('- ') + 2, width));
-                    } else if (line.includes(':')) {
-                        const colonIdx = line.indexOf(':');
-                        term.green(line.substring(0, colonIdx + 1)).white(line.substring(colonIdx + 1, width));
+                    if (viewMode === ViewMode.YAML) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('!yamlscript')) term.magenta(line.substring(0, width));
+                        else if (trimmed.startsWith('- ')) term.cyan('- ').white(line.substring(line.indexOf('- ') + 2, width));
+                        else if (line.includes(':')) {
+                            const colonIdx = line.indexOf(':');
+                            term.green(line.substring(0, colonIdx + 1)).white(line.substring(colonIdx + 1, width));
+                        } else term.white(line.substring(0, width));
                     } else {
                         term.white(line.substring(0, width));
                     }
@@ -249,8 +252,7 @@ async function main() {
                 term.bgGreen.black.eraseLine(` "${cmd}" ${modeStr} ${posStr} --${percent > 100 ? 100 : percent}%--`);
             } else {
                 const toggleKey = viewMode === ViewMode.MAN ? 'Y: YAML' : 'M: MAN';
-                const copyHint = viewMode === ViewMode.YAML ? ' | Shift+Drag to Copy' : '';
-                term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | ${toggleKey}${copyHint} | ^X: Exit `);
+                term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | ${toggleKey} | ^X: Exit `);
             }
 
             const builderBarY = term.height - 1;
@@ -264,14 +266,19 @@ async function main() {
         };
 
         const scrollIntoView = () => {
-            if (viewMode !== ViewMode.MAN) return;
             const activeT = uniqueTokens[activeIndex]!;
+            const targetLine = viewMode === ViewMode.MAN ? activeT.line : activeT.yamlLine;
             const height = term.height - 3;
-            if (activeT.line < offsetY) {
-                offsetY = activeT.line;
-            } else if (activeT.line >= offsetY + height) {
-                offsetY = activeT.line - height + 1;
+            let currentOffset = viewMode === ViewMode.MAN ? offsetY : yamlOffsetY;
+
+            if (targetLine < currentOffset) {
+                currentOffset = targetLine;
+            } else if (targetLine >= currentOffset + height) {
+                currentOffset = targetLine - height + 1;
             }
+
+            if (viewMode === ViewMode.MAN) offsetY = currentOffset;
+            else yamlOffsetY = currentOffset;
         };
 
         term.fullscreen(true);
@@ -328,7 +335,8 @@ async function main() {
                         render();
                         break;
                     case 'G':
-                        if (viewMode === ViewMode.MAN) offsetY = lines.length; else yamlOffsetY = yamlLines.length;
+                        const currentLines = viewMode === ViewMode.MAN ? unstrippedLines : yamlLines;
+                        if (viewMode === ViewMode.MAN) offsetY = currentLines.length; else yamlOffsetY = currentLines.length;
                         render();
                         break;
                     case 'y':
@@ -336,24 +344,21 @@ async function main() {
                     case 'm':
                     case 'M':
                         viewMode = viewMode === ViewMode.MAN ? ViewMode.YAML : ViewMode.MAN;
+                        scrollIntoView();
                         render();
                         break;
                     case 'TAB':
-                        if (viewMode === ViewMode.MAN && uniqueTokens.length > 0) {
-                            activeIndex = (activeIndex + 1) % uniqueTokens.length;
-                            scrollIntoView();
-                        }
+                        activeIndex = (activeIndex + 1) % uniqueTokens.length;
+                        scrollIntoView();
                         render();
                         break;
                     case 'SHIFT_TAB':
-                        if (viewMode === ViewMode.MAN && uniqueTokens.length > 0) {
-                            activeIndex = (activeIndex - 1 + uniqueTokens.length) % uniqueTokens.length;
-                            scrollIntoView();
-                        }
+                        activeIndex = (activeIndex - 1 + uniqueTokens.length) % uniqueTokens.length;
+                        scrollIntoView();
                         render();
                         break;
                     case 'ENTER':
-                        if (viewMode === ViewMode.MAN && uniqueTokens.length > 0) {
+                        if (uniqueTokens.length > 0) {
                             builtCommand += uniqueTokens[activeIndex]!.text + ' ';
                             focusArea = FocusArea.BUILDER_BAR;
                         }
@@ -387,6 +392,7 @@ async function main() {
                     case 'm':
                     case 'M':
                         viewMode = viewMode === ViewMode.MAN ? ViewMode.YAML : ViewMode.MAN;
+                        scrollIntoView();
                         render();
                         break;
                 }
@@ -398,9 +404,10 @@ async function main() {
                 if (data.y === term.height - 1) {
                     focusArea = FocusArea.BUILDER_BAR;
                     render();
-                } else if (viewMode === ViewMode.MAN) {
-                    const clickedLine = data.y + offsetY - 1;
-                    const match = uniqueTokens.find(t => t.line === clickedLine);
+                } else {
+                    const currentOffset = viewMode === ViewMode.MAN ? offsetY : yamlOffsetY;
+                    const clickedLine = data.y + currentOffset - 1;
+                    const match = uniqueTokens.find(t => (viewMode === ViewMode.MAN ? t.line : t.yamlLine) === clickedLine);
                     if (match) {
                         activeIndex = uniqueTokens.indexOf(match);
                         builtCommand += match.text + ' ';
