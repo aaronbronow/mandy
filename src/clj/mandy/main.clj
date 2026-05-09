@@ -74,8 +74,33 @@
                         tokens)))
          distinct)))
 
+(defn display-help []
+  (println "🌿 Mandy - Manual Discovery Tool (Alpha 0.3)")
+  (println "")
+  (println "Usage:")
+  (println "  mandy <command>                 Start interactive TUI")
+  (println "  mandy <command> | cat           Output raw YAMLScript data (High Fidelity)")
+  (println "  mandy <command> -c <context>    Discover command variants matching context")
+  (println "  mandy <command> -A <n>          Include <n> lines of trailing context")
+  (println "")
+  (println "Discovery Options:")
+  (println "  -c, --context <string>    Search for command variants matching <string>")
+  (println "  -A, --after-context <n>   Number of context lines to include after variants")
+  (println "  --json                    Output results as a JSON array or object")
+  (println "")
+  (println "General Options:")
+  (println "  -d, --debug               Output raw YAMLScript and exit")
+  (println "  -s, --strip               Output sanitized YAMLScript (condensed whitespace)")
+  (println "  -v, --vim                 Enable VIM keybindings in TUI")
+  (println "  -h, --help                Show this help message")
+  (println "")
+  (println "Agentic Discovery:")
+  (println "  For fast, non-interactive discovery, use the -c and -A flags.")
+  (println "  Mandy is instant (<10ms) when bypassing the TUI."))
+
 (defn -main [& args]
-  (let [is-debug (some #{"--debug" "-d"} args)
+  (let [is-help (some #{"--help" "-h"} args)
+        is-debug (some #{"--debug" "-d"} args)
         is-strip (some #{"--strip" "-s"} args)
         is-json (some #{"--json"} args)
         is-tty (not (nil? (System/console)))
@@ -89,8 +114,14 @@
         after-idx (some (fn [[i arg]] (when (#{"-A" "--after-context"} arg) i)) (map-indexed vector args))
         after-n (when after-idx (Integer/parseInt (nth args (inc after-idx) "0")))]
 
+    (when (or is-help (empty? args))
+      (display-help)
+      (System/exit 0))
+
     (if-not command
-      (do (println "Usage: mandy <command> [-c context] [-A n] [--json]") (System/exit 1)))
+      (do (println "Error: No command specified.")
+          (println "Usage: mandy <command> [-c context] [-A n] [--json]") 
+          (System/exit 1)))
 
     (let [man-raw (try 
                     (let [raw (:out (sh "bash" "-c" (str "man " command " | col -b")))]
