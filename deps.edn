@@ -2,5 +2,5 @@
  :deps {clj-commons/clj-yaml {:mvn/version "1.0.29"}
         cheshire/cheshire {:mvn/version "5.13.0"}}
  :aliases
- {:build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.6" :git/sha "8897086"}}
+ {:build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.13"}}
           :ns-default build}}}

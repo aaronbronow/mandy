@@ -91,20 +91,18 @@ async function main() {
             if (key !== 'SYNOPSIS' && key !== 'PREFACE') {
                 for (const lm of sectionLineMaps) {
                     const sanitizedText = lm.text.replace(/\s+/g, ' ').trim();
-                    if (sanitizedText.startsWith('-')) {
-                        let match;
-                        while ((match = flagExtractRegex.exec(sanitizedText)) !== null) {
-                            const flagText = match[1]!;
-                            const originalLine = unstrippedLines[lm.originalIndex]!;
-                            const originalCol = originalLine.indexOf(flagText);
-                            if (originalCol !== -1) {
-                                extractedTokens.push({
-                                    text: flagText,
-                                    line: lm.originalIndex,
-                                    startCol: originalCol,
-                                    yamlLine: originalLineToYamlIndex.get(lm.originalIndex) || -1
-                                });
-                            }
+                    let match;
+                    while ((match = flagExtractRegex.exec(sanitizedText)) !== null) {
+                        const flagText = match[1]!;
+                        const originalLine = unstrippedLines[lm.originalIndex]!;
+                        const originalCol = originalLine.indexOf(flagText);
+                        if (originalCol !== -1) {
+                            extractedTokens.push({
+                                text: flagText,
+                                line: lm.originalIndex,
+                                startCol: originalCol,
+                                yamlLine: originalLineToYamlIndex.get(lm.originalIndex) || -1
+                            });
                         }
                     }
                 }
