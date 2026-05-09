@@ -45,7 +45,7 @@
 (defn extract-tokens [line]
   (map second (re-seq #"(?:^|\s|,)(-{1,2}[a-zA-Z0-9-]+)" line)))
 
-(defn find-variants [command structured-data context-string]
+(defn find-variants [command structured-data context-string all-lines n]
   (let [pattern (re-pattern (str "(?i)\\b" context-string "\\b"))]
     (->> structured-data
          (mapcat (fn [section]
@@ -55,15 +55,23 @@
                        (:matches
                         (reduce (fn [acc lm]
                                   (let [tokens (extract-tokens (:text lm))
-                                        current-tokens (if (seq tokens) tokens (:last-tokens acc))]
+                                        current-state (if (seq tokens)
+                                                       {:tokens tokens :line-idx (:originalIndex lm)}
+                                                       (:last-tokens acc))]
                                     (if (re-find pattern (:text lm))
                                       (-> acc
-                                          (update :matches into current-tokens)
-                                          (assoc :last-tokens current-tokens))
-                                      (assoc acc :last-tokens current-tokens))))
-                                {:matches [] :last-tokens []}
+                                          (update :matches conj current-state)
+                                          (assoc :last-tokens current-state))
+                                      (assoc acc :last-tokens current-state))))
+                                {:matches [] :last-tokens {:tokens [] :line-idx -1}}
                                 line-maps))))))
-         (map #(str command " " %))
+         (mapcat (fn [{:keys [tokens line-idx]}]
+                   (map (fn [token]
+                          {:variant (str command " " token)
+                           :context (if (and n (>= line-idx 0))
+                                      (take n (drop (inc line-idx) all-lines))
+                                      [])})
+                        tokens)))
          distinct)))
 
 (defn -main [& args]
@@ -75,10 +83,14 @@
         
         ;; Context search parsing
         context-idx (some (fn [[i arg]] (when (#{"-c" "--context"} arg) i)) (map-indexed vector args))
-        context-string (when context-idx (nth args (inc context-idx) nil))]
+        context-string (when context-idx (nth args (inc context-idx) nil))
+        
+        ;; After context parsing
+        after-idx (some (fn [[i arg]] (when (#{"-A" "--after-context"} arg) i)) (map-indexed vector args))
+        after-n (when after-idx (Integer/parseInt (nth args (inc after-idx) "0")))]
 
     (if-not command
-      (do (println "Usage: mandy <command> [-c context] [--json]") (System/exit 1)))
+      (do (println "Usage: mandy <command> [-c context] [-A n] [--json]") (System/exit 1)))
 
     (let [man-raw (try 
                     (let [raw (:out (sh "bash" "-c" (str "man " command " | col -b")))]
@@ -106,11 +118,18 @@
           (println (.getAbsolutePath tmp-file))
           (System/exit 0))
 
-        context-string
-        (let [variants (find-variants command structured-data context-string)]
+        (or context-string after-n)
+        (let [results (if context-string
+                        (find-variants command structured-data context-string lines after-n)
+                        [{:variant command :context (if after-n (take after-n lines) [])}])]
           (if is-json
-            (println (json/generate-string variants))
-            (doseq [v variants] (println v)))
+            (println (json/generate-string results))
+            (doseq [i (range (count results))]
+              (let [{:keys [variant context]} (nth results i)]
+                (println variant)
+                (doseq [ctx context] (println ctx))
+                (when (and (> (count results) 1) (< i (dec (count results))))
+                  (println "--")))))
           (System/exit 0))
 
         (or is-debug is-strip (not is-tty))
