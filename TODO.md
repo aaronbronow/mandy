@@ -1,14 +1,16 @@
 # Mandy Roadmap: The Path to Beta 1.0
 
-Manual Discovery (**Mandy**) tool built with **Clojure**, **Node/TypeScript**, and **YAMLScript**.
+Manual Discovery (**Mandy**) tool built with **Clojure (GraalVM)**, **Bun/TypeScript**, and **YAMLScript**.
 
-## 🎯 Vision
-Transforming static documentation into a **Command IDE**. Mandy bridges the gap between intent (natural language/search) and syntax (flags/arguments) using a high-performance polyglot architecture.
+## 🎯 Full Vision
+Mandy is the **Interactive API for Documentation**. It transforms 40-year-old static man pages into structured, queryable data (YAMLScript) and provides a high-speed "Sniper" interface for intent-based command injection. 
+
+By separating the **Parser (Clojure)** from the **UI (Bun)**, Mandy serves both humans (TUI) and machines (LLMs) with sub-10ms performance.
 
 ---
 
 ## 🛠 Status: Alpha Complete (v0.1 - v0.4)
-- [x] **Polyglot Wrapper Architecture**: Clojure (Native GraalVM) for <10ms parsing; Node.js for rich TUI.
+- [x] **Polyglot Wrapper Architecture**: Clojure (Native GraalVM) for <10ms parsing; Bun-ready TUI architecture.
 - [x] **Source Map Architecture**: Linkage between Raw Man (Model A) and Sanitized YS (Model C).
 - [x] **Agentic Discovery**: `-c / --context` for finding commands based on intent.
 - [x] **Vim Integration**: Vim-style status line, keybindings, and `:ls` buffer logic.
@@ -16,7 +18,8 @@ Transforming static documentation into a **Command IDE**. Mandy bridges the gap 
 
 ---
 
-## 🚀 Beta 1.0 Milestone: The "Command IDE"
+## 🚀 Beta 0.1: The "Deep Search" & Distribution MVP
+**Focus**: Performance, Brute Force Retrieval, and Native Portability.
 
 ### 1. High-Fidelity Extraction & Heuristics
 - [ ] **Stateful Block Collector**: Implement Clojure-based "Slurp and Stitch" to handle multi-line `SYNOPSIS` blocks.
@@ -28,43 +31,32 @@ Transforming static documentation into a **Command IDE**. Mandy bridges the gap 
 - [ ] **Stage 1: Scout**: `/` triggers incremental substring matching.
 - [ ] **Stage 2: Freeze**: `Enter` highlights all matches and enables `n/p` navigation.
 - [ ] **Stage 3: Magnetic Lock**: `Enter` (again) snaps focus to the **nearest previous token** (flag/arg) in Model C.
-- [ ] **Stage 4: Cycle**: `Shift+Tab` to move selection to previous/alternate tokens from the snap point.
-- [ ] **Stage 5: Load**: `Enter` (final) appends focused token to the Command Variant and returns to normal mode.
+- [ ] **Stage 4: Load**: `Enter` (final) appends focused token to the Command Variant and returns to normal mode.
 
-### 3. Variant Management (Vim-Style Buffers)
-- [ ] **Variant Buffer List**: Implement an `:ls` / `\b` modal overlay for managing multiple command drafts.
-- [ ] **Stateful Drafts**: Keep multiple command variations in memory for a single man page.
-- [ ] **Indicators**: Use `%a` (active), `#` (alternate), and `+` (modified) flags in the list view.
-- [ ] **Hot-Swapping**: Rapidly switch between built command strings in the TUI footer.
+### 3. Deep Search Engine (`-K`)
+- [ ] **Global Search**: Clojure wrapper for `man -K` (Full-text) with fallback to `man -k` (Apropos).
+- [ ] **Results Dashboard**: TUI view for multiple search results with a "Peek" window for manual summaries.
 
-### 4. Brute Force Discovery
-- [ ] **Global Search (`-f / --find`)**:
-    - [ ] Logic: `man -k` (Apropos) -> `man -K` (Full-text).
-    - [ ] Clojure: Parse `--names-only` output into a structured YAML result list.
-    - [ ] TUI: "Search Results" dashboard with live "Peek" previews of identified pages.
+### 4. Deployment & Portability
+- [ ] **Port TUI to Bun**: Migrate from Node.js to Bun for faster startup and native compilation.
+- [ ] **Native Compilation**: Use `bun build --compile` for the UI and GraalVM for the core.
+- [ ] **Release Automation**: GitHub Actions to package multi-arch binaries (`.tar.gz`).
+- [ ] **Install Script**: `curl | sh` installer for zero-friction onboarding.
 
-### 5. Rich Content & Plugin Injection
-- [ ] **Interstitial Layer**: "Ghost Line" architecture to inject content between standard man lines.
-- [ ] **Plugin Hooks**:
-    - [ ] `live-template`: Interactive builders injected below `SYNOPSIS`.
-    - [ ] `collapsible-section`: Hide/show complex `EXAMPLES` blocks.
-    - [ ] `status-badge`: Tool-check indicators (e.g., "Dependency installed").
+---
 
-### 6. Agentic & NLP Bridge
-- [ ] **NLP Query (`-q / --query`)**: 
-    - [ ] Handshake with Gemini/Local LLM to map natural language to specific man pages and flags.
-    - [ ] Automatically open Mandy with specific tokens pre-highlighted.
+## 🌊 Beta 0.2 & Beyond: The "Brain" Phase
+- [ ] **NLP Query (`-q / --query`)**: Handshake with Gemini/Local LLM using structured `Model C` data.
+- [ ] **Rich Content Injections**: "Ghost Line" architecture for interstitial widgets (live templates, status badges).
+- [ ] **Variant Buffer List**: Modal `:ls` for managing multiple command drafts.
 
 ---
 
 ## 🏗 System Architecture Reference
-- **Frontend**: Node.js + `terminal-kit` (TUI), `TypeScript`.
-- **Backend**: Clojure (GraalVM) + `YAMLScript` (Parser/Logic).
-- **Data Model**: 
-    - **Model A**: Raw Text.
-    - **Model B**: Unsanitized YS.
-    - **Model C**: Sanitized/Tokenized YS.
-- **IPC**: Temporary file-based handshake for stable TTY.
+- **Frontend**: Bun + `terminal-kit` (TUI), `TypeScript`.
+- **Backend**: Clojure (GraalVM) + `YAMLScript` (Logic).
+- **IPC**: Temporary file handshake via `/tmp/mandy_buffer`.
+- **Model**: Source-mapped tokens across Model A (Raw), Model B (YS), and Model C (Sanitized).
 
 ---
-*Mandy: Manual Discovery & YAML-driven Syntax Injection.*
+*Mandy: The high-speed manual discovery engine.*

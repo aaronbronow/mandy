@@ -1,30 +1,33 @@
-# Mandy Roadmap
+# PLAN.md: Beta 0.1 Speedrun for Gemini-CLI
 
-Manual Discovery (**Mandy**) tool using Clojure, Node/TypeScript and YAMLScript.
+## Objective
+Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and set up the local file resolution.
 
-## Status: 100% Complete (Alpha 0.4 - Agentic Discovery)
+## 1. Environment Transition (Node -> Bun)
+- [ ] Update `package.json` dependencies for Bun compatibility.
+- [ ] Replace `child_process` calls with `Bun.spawn` or `Bun.$` for performance.
+- [ ] Verify `terminal-kit` lifecycle under Bun's event loop.
+- [ ] Scaffold `bun build --compile` script.
 
-- [x] **Discovery Mode**
-    - [x] **Context Search**: `-c` / `--context` for finding command variants based on description text.
-    - [x] **Multiline Memory**: State-carrying `reduce` to associate descriptions with preceding tokens.
-    - [x] **Word Boundaries**: Enforced regex `\b` to prevent false positive substring matches.
-    - [x] **After-Context**: `-A` / `--after-context` to include trailing descriptive lines.
-- [x] **Agentic Interface**
-    - [x] **Fast Response**: Native Clojure implementation for sub-10ms discovery.
-    - [x] **Structured Output**: Support for both clean string lists and machine-readable JSON arrays.
-    - [x] **Self-Documenting**: High-performance `--help` response specifically for agents.
-- [x] **TUI Robustness**
-    - [x] **Handshake 2.0**: Switched to temporary file IPC to restore full TTY input for TUI.
-    - [x] **Universal Tokens**: Extract and highlight flags mentioned anywhere in the man page.
-    - [x] **Stable I/O**: Forced disk sync for reliable prompt injection.
+## 2. Sniper Selection Logic (TUI)
+- [ ] **Search Mode**: Implement `/` input buffer. On `change`, search Model A and `term.moveTo` the first match.
+- [ ] **Freeze Mode**: On `Enter`, store current `matchIndex`. Enable `n/p` to cycle `allMatches[]`.
+- [ ] **Magnetic Snap**: On `Enter` (again), use the Manhattan distance formula:
+  `D = (match.y - token.y) * 100 + (match.x - token.x)`
+  Snap focus to the token with the smallest positive `D` where `type` is `flag` or `arg`.
 
-## Status: 100% Complete (Alpha 0.3 - Polyglot Wrapper Architecture)
-...
-- [x] **Dev Tooling**: Added `debug-payload` and `run-tui` for isolated component testing.
+## 3. Local File Resolution (Clojure Core)
+- [ ] Update argument parser to check `(fs/exists? arg)`.
+- [ ] If path exists, use `man -l path`.
+- [ ] If file ends in `.md`, add `pandoc -s -t man path | man -l -` to the pipeline.
 
-## Next Steps (Beta 0.1)
-1. Refine the command extraction heuristics (handle multi-line synopsis better).
-2. Add support for local man page file parsing.
-3. Add search functionality within the TUI.
-4. Implement a "Natural Language" discovery bridge (e.g. LLM-assisted search).
+## 4. Deep Search Router (Clojure Core)
+- [ ] Implement `-K` flag logic.
+- [ ] If `man -K --names-only` returns > 1 result, output a YAML list of commands.
+- [ ] If 1 result, proceed to standard Discovery flow.
 
+## 5. Deployment Prototype
+- [ ] Create `scripts/build.sh` that triggers:
+    - `lein native-image` (Clojure)
+    - `bun build --compile ./src/index.ts --outfile ./bin/mandy-ui`
+- [ ] Draft `install.sh` for binary distribution.
