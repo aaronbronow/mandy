@@ -52,7 +52,8 @@
       (do (println "Usage: mandy <command>") (System/exit 1)))
 
     (let [man-raw (try 
-                    (:out (sh "bash" "-c" (str "man " command " | col -b")))
+                    (let [raw (:out (sh "bash" "-c" (str "man " command " | col -b")))]
+                      (str/replace raw "\t" "        "))
                     (catch Exception e 
                       (binding [*out* *err*] (println "Error: Command not found"))
                       (System/exit 1)))
@@ -70,13 +71,15 @@
                        {:rawYaml raw-yaml
                         :sanitizedYaml sanitized-yaml
                         :structuredData structured-data})
-              pb (ProcessBuilder. ["node" "dist/index.js"])
+              tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
+              _ (spit tmp-file payload)
+              pb (ProcessBuilder. (into ["node" "dist/index.js"] args))
+              env (.environment pb)
+              _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
+              _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
               _ (.redirectError pb ProcessBuilder$Redirect/INHERIT)
               _ (.redirectOutput pb ProcessBuilder$Redirect/INHERIT)
-              proc (.start pb)
-              out (.getOutputStream proc)]
-          (.write out (.getBytes payload))
-          (.flush out)
-          (.close out)
-          (.waitFor proc))))
+              proc (.start pb)]
+          (.waitFor proc)
+          (.delete tmp-file))))
     (System/exit 0)))

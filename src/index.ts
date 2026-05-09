@@ -3,8 +3,15 @@ import { execSync } from 'child_process';
 import { writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 // @ts-ignore
-import { terminal as term } from 'terminal-kit';
+import * as termKit from 'terminal-kit';
 import * as yaml from 'js-yaml';
+
+const term = termKit.createTerminal({
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr,
+    name: process.env.TERM || 'xterm-256color'
+});
 
 interface LineMap {
     originalIndex: number;
@@ -31,8 +38,14 @@ enum ViewMode {
 async function main() {
     const args = process.argv.slice(2);
 
-    // Read the pre-parsed payload from the Clojure wrapper via stdin
-    const inputPayload = readFileSync(0, 'utf8');
+    // Read the pre-parsed payload from the Clojure wrapper via temporary file
+    const payloadPath = process.env.MANDY_PAYLOAD_PATH;
+    if (!payloadPath) {
+        console.error('Error: MANDY_PAYLOAD_PATH not set.');
+        process.exit(1);
+    }
+    
+    const inputPayload = readFileSync(payloadPath, 'utf8');
     if (!inputPayload || inputPayload.trim() === '') {
         console.error('Error: No input data received from wrapper.');
         process.exit(1);
@@ -209,8 +222,7 @@ async function main() {
                 const modeStr = viewMode === ViewMode.MAN ? '[MAN]' : '[YAML]';
                 term.bgGreen.black.eraseLine(` "${cmd}" ${modeStr} ${posStr} --${percent > 100 ? 100 : percent}%--`);
             } else {
-                const toggleKey = viewMode === ViewMode.MAN ? 'Y: YAML' : 'M: MAN';
-                term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | ${toggleKey} | ^X: Exit `);
+                term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | V: View | ^X: Exit `);
             }
 
             const builderBarY = term.height - 1;
@@ -297,10 +309,8 @@ async function main() {
                         if (viewMode === ViewMode.MAN) offsetY = currentLines.length; else yamlOffsetY = currentLines.length;
                         render();
                         break;
-                    case 'y':
-                    case 'Y':
-                    case 'm':
-                    case 'M':
+                    case 'v':
+                    case 'V':
                         viewMode = viewMode === ViewMode.MAN ? ViewMode.YAML : ViewMode.MAN;
                         scrollIntoView();
                         render();
@@ -345,14 +355,6 @@ async function main() {
                     case 'Q':
                         terminate();
                         break;
-                    case 'y':
-                    case 'Y':
-                    case 'm':
-                    case 'M':
-                        viewMode = viewMode === ViewMode.MAN ? ViewMode.YAML : ViewMode.MAN;
-                        scrollIntoView();
-                        render();
-                        break;
                 }
             }
         });
@@ -365,7 +367,22 @@ async function main() {
                 } else {
                     const currentOffset = viewMode === ViewMode.MAN ? offsetY : yamlOffsetY;
                     const clickedLine = data.y + currentOffset - 1;
-                    const match = uniqueTokens.find(t => (viewMode === ViewMode.MAN ? t.line : t.yamlLine) === clickedLine);
+                    const match = uniqueTokens.find(t => {
+                        const isCorrectLine = (viewMode === ViewMode.MAN ? t.line : t.yamlLine) === clickedLine;
+                        if (!isCorrectLine) return false;
+                        
+                        // X-coordinate check (Visual column mapping)
+                        const currentLines = viewMode === ViewMode.MAN ? unstrippedLines : yamlLines;
+                        const line = currentLines[clickedLine];
+                        if (!line) return false;
+                        
+                        const tokenIdx = line.indexOf(t.text);
+                        if (tokenIdx === -1) return false;
+                        
+                        // terminal-kit uses 1-based coordinates
+                        return data.x >= tokenIdx + 1 && data.x < tokenIdx + 1 + t.text.length;
+                    });
+                    
                     if (match) {
                         activeIndex = uniqueTokens.indexOf(match);
                         builtCommand += match.text + ' ';
