@@ -128,7 +128,7 @@
               (let [{:keys [variant context]} (nth results i)]
                 (println variant)
                 (doseq [ctx context] (println ctx))
-                (when (and (> (count results) 1) (< i (dec (count results))))
+                (when (and after-idx (> (count results) 1) (< i (dec (count results))))
                   (println "--")))))
           (System/exit 0))
 
