@@ -8,9 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "ts-node src/index.ts",
-    "shell": "ZDOTDIR=$PWD zsh -i",
-    "test": "node dist/index.js ls -d | ys -J -"
+    "shell": "ZDOTDIR=$PWD zsh -i"
   },
   "repository": {
     "type": "git",

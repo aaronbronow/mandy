@@ -1,47 +1,56 @@
-# 🌿 Mandy (Manual Discovery) Alpha 0.2
+# 🌿 Mandy (Manual Discovery) Alpha 0.3
 
-Mandy is a manual discovery tool that turns crusty man pages into structured, interactive command injectors. It uses **YAMLScript** for high-level parsing and **TypeScript** for the TUI magic.
+Mandy is a manual discovery tool that turns crusty man pages into structured, interactive command injectors. It uses a **Polyglot Wrapper Architecture**: a high-performance **Clojure** native binary handles the heavy parsing and source-mapping, while a **Node.js/TypeScript** TUI provides the interactive experience.
 
-## 🚀 Speedrun: Local Setup
+## 🚀 Installation
 
-Get Mandy running in under 60 seconds:
+Mandy is split into a **Native Parser** and a **Node.js TUI**.
 
-### 1. System Requirements
-You need the **YAMLScript** native library:
+### 1. Requirements
+- **Node.js**: Required to run the TUI.
+- **YAMLScript**: Required for high-level data processing.
+  ```bash
+  curl -sSL https://yamlscript.org/install | bash
+  ```
+
+### 2. Get Mandy
+
+#### Option A: End Users (No JDK/Clojure required)
+1. **Download the Binary**: Download the `mandy` native binary for your platform from the [Releases](https://github.com/aaronbronow/mandy/releases) page.
+2. **Move to Path**: Place the binary in your `$PATH` (e.g., `/usr/local/bin/mandy`).
+3. **Install TUI**:
+   ```bash
+   git clone https://github.com/aaronbronow/mandy.git
+   cd mandy
+   npm install
+   npm run build
+   ```
+
+#### Option B: Developers (Requires Clojure/JDK)
+If you want to build the native binary from source:
 ```bash
-curl -sSL https://yamlscript.org/install | bash
-```
-
-### 2. Install & Build
-```bash
+git clone https://github.com/aaronbronow/mandy.git
+cd mandy
 npm install
-npm run build
+make native
 ```
 
-### 3. Global Link (Optional)
-To use `mandy` anywhere on your system:
+### 3. Global Link
+To make the TUI accessible to the binary:
 ```bash
 sudo npm link
 ```
-*Note: Because this creates a symlink, you only need to run `npm run build` to update the global binary after making changes.*
-
-### 4. Enter the Dev Shell
-We use a specialized Zsh environment for testing that doesn't mess with your global config.
-```bash
-npm run shell
-```
-*Once inside, the `mandy` command is live (via a shell function that enables prompt injection) and you'll see a blue `mandy` indicator in your right prompt.*
 
 ## 🛠 Project Structure
-- `src/index.ts`: The TUI and CLI brain with **Source Map Architecture**.
-- `plugins/base.ys`: The YAMLScript strategy for parsing man pages.
-- `.mandyrc`: The shell bridge for prompt injection.
+- **`src/clj/mandy/main.clj`**: The Native Parser (Clojure). Handles man page fetching, regex-based structure parsing, and source mapping.
+- **`src/index.ts`**: The "Thin" TUI (TypeScript). Consumes pre-parsed data from the Clojure wrapper via `stdin`.
+- **`Makefile`**: Orchestrates the multi-language build and test pipeline.
+- **`.mandyrc`**: The shell bridge for prompt injection.
 
 ## 🧪 Try It Out
-Inside the dev shell (or anywhere if linked):
+Run mandy on any command:
 ```bash
 mandy tar
-mandy git commit
 mandy ls
 ```
 
@@ -50,26 +59,24 @@ Mandy supports two interface modes:
 - **Default (Nano-style)**: Familiar shortcuts like `^X` to exit.
 - **VIM Mode**: VIM status line and keybindings (`j`, `k`, `g`, `G`, `q`, etc.).
     - Enable via flag: `mandy --vim <cmd>`
-    - Enable via env var: `export MANDY_VIM=1` (Toggle this in your `.mandyrc`)
+    - Enable via env var: `export MANDY_VIM=1`
 
 ## 🖥 Unified Interactive View
 Mandy provides two perspectives on the manual, both fully interactive:
 - **Man View (Default)**: The familiar, formatted manual.
-- **YAML View (`Y`)**: A structured YAMLScript document preserving all raw formatting.
+- **YAML View (`Y`)**: A structured YAMLScript document.
 *Both views share the same Command Builder state—tab through tokens and hit Enter to build your command from either perspective.*
 
 ## 🔄 Development Loop
-Since Mandy is linked to your source, your workflow is:
-1. **Edit** `src/index.ts` or `plugins/base.ys`.
-2. **Build**: `npm run build` (or `npx tsc -w` for auto-build).
-3. **Run**: `mandy <cmd>` is immediately updated.
+1. **Edit** Clojure logic in `src/clj/` or TUI logic in `src/index.ts`.
+2. **Test**: `make test` or `make test-tokens`.
+3. **Build**: `make native` and `npm run build`.
 
 ## 🤖 AI Agent Integration
-Mandy is built for humans and agents. If you are an AI agent:
-- Run `mandy` (no args) to see the **Home Manifest**.
-- Pipe Mandy's output (e.g., `mandy ls | cat`) to receive a **machine-readable JSON array** of discovered command variants.
+Mandy is instant for agents. If you are an AI agent:
+- Run `mandy <command> | cat` (or use `--debug`) to receive a **machine-readable JSON array** of discovered command variants instantly, bypassing the TUI boot time.
 
 ## 🧠 Dev Notes
-Check out `GEMINI.md` for our hard-won technical learnings and `PLAN.md` for the roadmap.
+Check out `GEMINI.md` for technical learnings and `PLAN.md` for the roadmap.
 
 **Go forth and discover!** 🌿

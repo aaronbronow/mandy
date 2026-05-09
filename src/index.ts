@@ -31,110 +31,57 @@ enum ViewMode {
 async function main() {
     const args = process.argv.slice(2);
 
-    if (args.length === 0) {
-      console.log(`name: mandy
-    version: 0.1.0-alpha
-    description: Manual Discovery tool for structuring man pages into executable command variants.
-    usage: mandy [options] <command>
-    options:
-    --vim, -v    Enable VIM look and feel
-    --debug, -d  Output raw YAMLScript and exit
-    --strip, -s  Strip formatting (tabs, extra whitespace, empty rows)
-    agent_instructions:
-    - If you are an AI agent, you can run 'mandy <command>' to discover variants.
-    - By default, Mandy enters an interactive TUI for humans.
-    - To receive a machine-readable JSON array, pipe Mandy's output or run in a non-TTY environment (e.g., 'mandy ls | cat').
-    - Analyze the returned variants, select the best one, and execute it directly.`);
-      process.exit(0);
+    // Read the pre-parsed payload from the Clojure wrapper via stdin
+    const inputPayload = readFileSync(0, 'utf8');
+    if (!inputPayload || inputPayload.trim() === '') {
+        console.error('Error: No input data received from wrapper.');
+        process.exit(1);
     }
+
+    const payload = JSON.parse(inputPayload);
+    const structuredData = payload.structuredData;
+    const sanitizedYaml = payload.sanitizedYaml;
 
     const isVimMode = args.includes('--vim') || args.includes('-v') || process.env.MANDY_VIM === '1';
     const isDebugMode = args.includes('--debug') || args.includes('-d');
     const isStripMode = args.includes('--strip') || args.includes('-s');
     const cmd = args.filter(a => !a.startsWith('-'))[0];
 
-    if (!cmd) {
-      console.error('Error: No command specified.');
-      process.exit(1);
-    }
-
     try {
-        // 1. Fetch Man page (Model A: The Visuals)
-        const manContentRaw = execSync(`man ${cmd} | col -b`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
-        const unstrippedLines = manContentRaw.split('\n');
-
-        // 2. Generate the Source Map (Bridge)
-        const sourceMap: LineMap[] = [];
-        for (let i = 0; i < unstrippedLines.length; i++) {
-            const original = unstrippedLines[i]!;
-            const sanitized = original.replace(/\s+/g, ' ').trim();
-            if (sanitized !== '') {
-                sourceMap.push({ originalIndex: i, text: sanitized });
-            }
-        }
-
-        // 3. Structured Parsing (Source of Truth)
-        // Model B: Unsanitized Structured Document (Preserves all lines/formatting)
-        const structuredUnsanitized: any[] = unstrippedLines.reduce((acc: any[], line, i) => {
-            const trimmed = line.trim();
-            const lm: LineMap = { originalIndex: i, text: line };
-            if (/^[A-Z][A-Z\s]{2,}$/.test(trimmed)) {
-                acc.push({ [trimmed]: [] });
-            } else {
-                const last = acc[acc.length - 1];
-                const key = Object.keys(last)[0]!;
-                last[key].push(lm);
-            }
-            return acc;
-        }, [{ "PREAMBLE": [] }]);
-
-        // Model C: Sanitized Structured Document (For Token Extraction)
-        const structuredSanitized: any[] = sourceMap.reduce((acc: any[], lineMap) => {
-            const text = lineMap.text;
-            if (/^[A-Z][A-Z\s]{2,}$/.test(text)) {
-                acc.push({ [text]: [] });
-            } else {
-                const last = acc[acc.length - 1];
-                const key = Object.keys(last)[0]!;
-                last[key].push(lineMap);
-            }
-            return acc;
-        }, [{ "PREAMBLE": [] }]);
-
-        // Generate High-Fidelity YAML with YAML Source Map
+        // 1. Reconstruct Models from Payload
+        const unstrippedLines: string[] = [];
         const yamlLines: string[] = ["!yamlscript/v0/data"];
         const originalLineToYamlIndex = new Map<number, number>();
 
-        for (const section of structuredUnsanitized) {
-            const key = Object.keys(section)[0]!;
-            const sectionLineMaps = section[key] as LineMap[];
+        for (const section of structuredData) {
+            const [key, sectionLineMaps] = Object.entries(section)[0] as [string, LineMap[]];
             yamlLines.push(`- ${key}:`);
             for (const lm of sectionLineMaps) {
+                unstrippedLines[lm.originalIndex] = lm.text;
                 originalLineToYamlIndex.set(lm.originalIndex, yamlLines.length);
-                // Basic YAML string escaping for the lines
                 const escaped = lm.text.replace(/'/g, "''");
                 yamlLines.push(`    - '${escaped}'`);
             }
         }
-        
-        if (isDebugMode) {
-            console.log(yamlLines.join('\n'));
-            process.exit(0);
+
+        // Fill any gaps in unstrippedLines with empty strings (though unlikely)
+        for (let i = 0; i < unstrippedLines.length; i++) {
+            if (unstrippedLines[i] === undefined) unstrippedLines[i] = "";
         }
 
-        // 4. Token Extraction via Source Map (Operating on Model C)
+        // 2. Token Extraction via structuredData
         const extractedTokens: Token[] = [];
         const flagExtractRegex = /(?:^|\s|,)(-{1,2}[a-zA-Z0-9-]+)/g;
 
-        for (const section of structuredSanitized) {
-            const key = Object.keys(section)[0]!;
-            const sectionLineMaps = section[key] as LineMap[];
+        for (const section of structuredData) {
+            const [key, sectionLineMaps] = Object.entries(section)[0] as [string, LineMap[]];
             
-            if (key !== 'SYNOPSIS' && key !== 'PREAMBLE') {
+            if (key !== 'SYNOPSIS' && key !== 'PREFACE') {
                 for (const lm of sectionLineMaps) {
-                    if (lm.text.startsWith('-')) {
+                    const sanitizedText = lm.text.replace(/\s+/g, ' ').trim();
+                    if (sanitizedText.startsWith('-')) {
                         let match;
-                        while ((match = flagExtractRegex.exec(lm.text)) !== null) {
+                        while ((match = flagExtractRegex.exec(sanitizedText)) !== null) {
                             const flagText = match[1]!;
                             const originalLine = unstrippedLines[lm.originalIndex]!;
                             const originalCol = originalLine.indexOf(flagText);
@@ -155,7 +102,18 @@ async function main() {
         const uniqueTokens = extractedTokens.sort((a, b) => a.line - b.line || a.startCol - b.startCol)
             .filter((t, i, arr) => !i || (t.line !== arr[i-1]!.line || t.startCol !== arr[i-1]!.startCol));
 
-        // 5. Auto-Detect Mode
+        // 3. Mode Handling (The Wrapper already handles context, but we respect flags)
+        if (isDebugMode) {
+            console.log(yamlLines.join('\n'));
+            process.exit(0);
+        }
+
+        if (isStripMode) {
+            console.log(sanitizedYaml);
+            process.exit(0);
+        }
+
+        // Auto-Detect Mode (If stdout is piped, just print tokens)
         if (!process.stdout.isTTY) {
             console.log(JSON.stringify(Array.from(new Set(uniqueTokens.map(t => t.text))), null, 2));
             process.exit(0);

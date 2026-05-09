@@ -25,3 +25,10 @@
 ## CLI TUI
 - **Enquirer**: Use `enquirer` for interactive selections. It handles TTY correctly even when the shell function is wrapping the Node.js call.
 - **Shell Injection**: Use a temporary buffer file (`/tmp/mandy_buffer`) and `print -z` in Zsh to inject strings back into the prompt.
+
+## Polyglot Wrapper Architecture (Alpha 0.3)
+- **Thin Loader / Rich UI**: Using a native-compiled language (Clojure/GraalVM) for the entry point solves the Node.js cold-start problem. The native binary handles heavy parsing and instant "Agent Mode" output, only spawning the Node.js TUI when interactivity is required.
+- **Handshake via Stdin**: Standard input is a robust, low-latency IPC channel for passing large JSON payloads (pre-parsed state and source maps) from a parent wrapper to a child TUI process.
+- **Source Map Preservation**: When offloading parsing to a separate script/process, you must explicitly track and pass original line indices if the UI needs to correlate data back to the original source text.
+- **Unified Build System**: A `Makefile` is essential for orchestrating multi-language projects (Clojure, TypeScript, GraalVM). It provides a single source of truth for complex build pipelines that `package.json` alone cannot handle gracefully.
+- **GraalVM Native Image**: Compiling Clojure to native binaries provides sub-10ms startup times and zero-dependency distribution, making JVM-based languages viable for performance-critical CLI tools.

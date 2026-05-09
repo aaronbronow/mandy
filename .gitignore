@@ -1,7 +1,10 @@
 node_modules
 dist
+target
+.cpcache
+mandy
+*.jar
 .zcompdump*
-test.ys
 src/*.js
 src/*.d.ts
 src/*.map
