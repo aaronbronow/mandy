@@ -56,7 +56,6 @@ async function main() {
     const sanitizedYaml = payload.sanitizedYaml;
     const cmd = payload.cmd;
 
-    const isVimMode = args.includes('--vim') || args.includes('-v') || process.env.MANDY_VIM === '1';
     const isDebugMode = args.includes('--debug') || args.includes('-d');
     const isStripMode = args.includes('--strip') || args.includes('-s');
 
@@ -219,14 +218,7 @@ async function main() {
 
             const statusLineY = term.height - 2;
             term.moveTo(1, statusLineY);
-            if (isVimMode) {
-                const percent = currentLines.length > height ? Math.round(((currentOffset + height) / currentLines.length) * 100) : 100;
-                const posStr = `${currentOffset + 1}L, ${currentLines.length}C`;
-                const modeStr = viewMode === ViewMode.MAN ? '[MAN]' : '[YAML]';
-                term.bgGreen.black.eraseLine(` "${cmd}" ${modeStr} ${posStr} --${percent > 100 ? 100 : percent}%--`);
-            } else {
-                term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | V: View | ^X: Exit `);
-            }
+            term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | V: View | ^X: Exit `);
 
             const builderBarY = term.height - 1;
             term.moveTo(1, builderBarY);

@@ -91,7 +91,6 @@
   (println "General Options:")
   (println "  -d, --debug               Output raw YAMLScript and exit")
   (println "  -s, --strip               Output sanitized YAMLScript (condensed whitespace)")
-  (println "  -v, --vim                 Enable VIM keybindings in TUI")
   (println "  -h, --help                Show this help message")
   (println "")
   (println "Agentic Discovery:")
