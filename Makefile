@@ -2,21 +2,13 @@
 
 mandy: native
 
-target/mandy-0.1.0-standalone.jar: src/clj/mandy/main.clj deps.edn build.clj
-	clj -T:build uber
-
-uber: target/mandy-0.1.0-standalone.jar
-
-native: target/mandy-0.1.0-standalone.jar
-	native-image -H:Name=mandy \
-	             -H:+ReportExceptionStackTraces \
-	             --no-fallback \
-	             --initialize-at-build-time \
-	             --report-unsupported-elements-at-runtime \
-	             -jar target/mandy-0.1.0-standalone.jar
+build: build-ts
 
 build-ts:
 	npm run build
+
+shell: build-ts
+	ZDOTDIR=$$PWD zsh -i
 
 clean:
 	clj -T:build clean
