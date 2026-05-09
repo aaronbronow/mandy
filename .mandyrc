@@ -3,7 +3,8 @@
 
 mandy() {
   local mandy_root="/home/aaron/dev/mandy"
-  node "$mandy_root/dist/index.js" "$@"
+  # Use the Clojure entry point which handles parsing and handoff to Node.js
+  clj -M -m mandy.main "$@"
   if [ -f /tmp/mandy_buffer ]; then
     local cmd=$(cat /tmp/mandy_buffer)
     rm /tmp/mandy_buffer
