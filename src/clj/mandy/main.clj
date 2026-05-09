@@ -42,14 +42,35 @@
                          structured-data)]
     (str header (yaml/generate-string yaml-map))))
 
+(defn extract-tokens [line]
+  (map second (re-seq #"(?:^|\s|,)(-{1,2}[a-zA-Z0-9-]+)" line)))
+
+(defn find-variants [command structured-data context-string]
+  (let [pattern (re-pattern (str "(?i)" context-string))]
+    (->> structured-data
+         (mapcat (fn [section]
+                   (let [[heading line-maps] (first section)]
+                     (if (#{"SYNOPSIS" "PREFACE"} heading)
+                       []
+                       (filter #(re-find pattern (:text %)) line-maps)))))
+         (mapcat (fn [lm]
+                   (let [tokens (extract-tokens (:text lm))]
+                     (map #(str command " " %) tokens))))
+         distinct)))
+
 (defn -main [& args]
   (let [is-debug (some #{"--debug" "-d"} args)
         is-strip (some #{"--strip" "-s"} args)
+        is-json (some #{"--json"} args)
         is-tty (not (nil? (System/console)))
-        command (first (remove #(str/starts-with? % "-") args))]
+        command (first (remove #(str/starts-with? % "-") args))
+        
+        ;; Context search parsing
+        context-idx (some (fn [[i arg]] (when (#{"-c" "--context"} arg) i)) (map-indexed vector args))
+        context-string (when context-idx (nth args (inc context-idx) nil))]
 
     (if-not command
-      (do (println "Usage: mandy <command>") (System/exit 1)))
+      (do (println "Usage: mandy <command> [-c context] [--json]") (System/exit 1)))
 
     (let [man-raw (try 
                     (let [raw (:out (sh "bash" "-c" (str "man " command " | col -b")))]
@@ -65,7 +86,8 @@
           raw-yaml (generate-yaml structured-data false)
           sanitized-yaml (generate-yaml structured-data true)]
 
-      (if (System/getenv "MANDY_DRY_RUN")
+      (cond
+        (System/getenv "MANDY_DRY_RUN")
         (let [payload (json/generate-string 
                        {:rawYaml raw-yaml
                         :sanitizedYaml sanitized-yaml
@@ -75,22 +97,32 @@
               _ (spit tmp-file payload)]
           (println (.getAbsolutePath tmp-file))
           (System/exit 0))
-        (if (or is-debug is-strip (not is-tty))
-          (println (if is-strip sanitized-yaml raw-yaml))
-          (let [payload (json/generate-string 
-                         {:rawYaml raw-yaml
-                          :sanitizedYaml sanitized-yaml
-                          :structuredData structured-data
-                          :cmd command})
-                tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
-                _ (spit tmp-file payload)
-                pb (ProcessBuilder. (into ["node" "dist/index.js"] args))
-                env (.environment pb)
-                _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
-                _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
-                _ (.redirectError pb java.lang.ProcessBuilder$Redirect/INHERIT)
-                _ (.redirectOutput pb java.lang.ProcessBuilder$Redirect/INHERIT)
-                proc (.start pb)]
-            (.waitFor proc)
-            (.delete tmp-file)))))
+
+        context-string
+        (let [variants (find-variants command structured-data context-string)]
+          (if is-json
+            (println (json/generate-string variants))
+            (doseq [v variants] (println v)))
+          (System/exit 0))
+
+        (or is-debug is-strip (not is-tty))
+        (println (if is-strip sanitized-yaml raw-yaml))
+
+        :else
+        (let [payload (json/generate-string 
+                       {:rawYaml raw-yaml
+                        :sanitizedYaml sanitized-yaml
+                        :structuredData structured-data
+                        :cmd command})
+              tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
+              _ (spit tmp-file payload)
+              pb (ProcessBuilder. (into ["node" "dist/index.js"] args))
+              env (.environment pb)
+              _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
+              _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+              _ (.redirectError pb java.lang.ProcessBuilder$Redirect/INHERIT)
+              _ (.redirectOutput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+              proc (.start pb)]
+          (.waitFor proc)
+          (.delete tmp-file))))
     (System/exit 0)))
