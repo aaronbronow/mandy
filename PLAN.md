@@ -16,6 +16,7 @@ Manual Discovery (**Mandy**) tool using Clojure, Node/TypeScript and YAMLScript.
     - [x] **Makefile**: Unified orchestration for Clojure (uberjar/native) and TypeScript (tsc).
     - [x] **GraalVM Integration**: Native-image compilation for zero-dependency distribution.
     - [x] **Release Packaging**: `dist` target for creating platform-specific tarballs.
+    - [x] **Dev Tooling**: Added `debug-payload` and `run-tui` for isolated component testing.
 
 ## Status: 100% Complete (Alpha 0.2)
 ...

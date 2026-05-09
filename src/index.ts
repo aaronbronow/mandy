@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from 'child_process';
-import { writeFileSync, readFileSync } from 'fs';
+import { writeFileSync, readFileSync, openSync, fsyncSync, closeSync } from 'fs';
 import { join } from 'path';
 // @ts-ignore
 import * as termKit from 'terminal-kit';
@@ -54,11 +54,11 @@ async function main() {
     const payload = JSON.parse(inputPayload);
     const structuredData = payload.structuredData;
     const sanitizedYaml = payload.sanitizedYaml;
+    const cmd = payload.cmd;
 
     const isVimMode = args.includes('--vim') || args.includes('-v') || process.env.MANDY_VIM === '1';
     const isDebugMode = args.includes('--debug') || args.includes('-d');
     const isStripMode = args.includes('--strip') || args.includes('-s');
-    const cmd = args.filter(a => !a.startsWith('-'))[0];
 
     try {
         // 1. Reconstruct Models from Payload
@@ -147,7 +147,10 @@ async function main() {
             term.clear();
             if (selected) {
                 const bufferPath = '/tmp/mandy_buffer';
-                writeFileSync(bufferPath, selected.trim());
+                const fd = openSync(bufferPath, 'w');
+                writeFileSync(fd, selected.trim());
+                fsyncSync(fd);
+                closeSync(fd);
             }
             process.exit(0);
         };

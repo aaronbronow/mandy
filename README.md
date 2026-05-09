@@ -72,6 +72,17 @@ Mandy provides two perspectives on the manual, both fully interactive:
 2. **Test**: `make test` or `make test-tokens`.
 3. **Build**: `make native` and `npm run build`.
 
+## 🛠 Advanced Development
+Mandy provides specialized tools in the `Makefile` for debugging the handshake and parsing:
+- **Inspect Payload**: Run the parser and view the raw JSON state passed to the TUI.
+  ```bash
+  make debug-payload CMD=tar
+  ```
+- **Isolated TUI Test**: Run the Node.js TUI using the last generated payload (bypasses the Clojure wrapper).
+  ```bash
+  make run-tui
+  ```
+
 ## 🤖 AI Agent Integration
 Mandy is instant for agents and scripts. In non-interactive contexts (e.g., pipes or redirects):
 - **Default (High Fidelity)**: Mandy outputs a full YAML document (Model B) preserving all formatting.

@@ -9,6 +9,9 @@ mandy() {
     local cmd=$(cat /tmp/mandy_buffer)
     rm /tmp/mandy_buffer
     print -z "$cmd"
+  else
+    # No buffer file found
+    return 0
   fi
 }
 

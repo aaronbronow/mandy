@@ -65,21 +65,32 @@
           raw-yaml (generate-yaml structured-data false)
           sanitized-yaml (generate-yaml structured-data true)]
 
-      (if (or is-debug is-strip (not is-tty))
-        (println (if is-strip sanitized-yaml raw-yaml))
+      (if (System/getenv "MANDY_DRY_RUN")
         (let [payload (json/generate-string 
                        {:rawYaml raw-yaml
                         :sanitizedYaml sanitized-yaml
-                        :structuredData structured-data})
+                        :structuredData structured-data
+                        :cmd command})
               tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
-              _ (spit tmp-file payload)
-              pb (ProcessBuilder. (into ["node" "dist/index.js"] args))
-              env (.environment pb)
-              _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
-              _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
-              _ (.redirectError pb ProcessBuilder$Redirect/INHERIT)
-              _ (.redirectOutput pb ProcessBuilder$Redirect/INHERIT)
-              proc (.start pb)]
-          (.waitFor proc)
-          (.delete tmp-file))))
+              _ (spit tmp-file payload)]
+          (println (.getAbsolutePath tmp-file))
+          (System/exit 0))
+        (if (or is-debug is-strip (not is-tty))
+          (println (if is-strip sanitized-yaml raw-yaml))
+          (let [payload (json/generate-string 
+                         {:rawYaml raw-yaml
+                          :sanitizedYaml sanitized-yaml
+                          :structuredData structured-data
+                          :cmd command})
+                tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
+                _ (spit tmp-file payload)
+                pb (ProcessBuilder. (into ["node" "dist/index.js"] args))
+                env (.environment pb)
+                _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
+                _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+                _ (.redirectError pb java.lang.ProcessBuilder$Redirect/INHERIT)
+                _ (.redirectOutput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+                proc (.start pb)]
+            (.waitFor proc)
+            (.delete tmp-file)))))
     (System/exit 0)))
