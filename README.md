@@ -73,8 +73,19 @@ Mandy provides two perspectives on the manual, both fully interactive:
 3. **Build**: `make native` and `npm run build`.
 
 ## 🤖 AI Agent Integration
-Mandy is instant for agents. If you are an AI agent:
-- Run `mandy <command> | cat` (or use `--debug`) to receive a **machine-readable JSON array** of discovered command variants instantly, bypassing the TUI boot time.
+Mandy is instant for agents and scripts. In non-interactive contexts (e.g., pipes or redirects):
+- **Default (High Fidelity)**: Mandy outputs a full YAML document (Model B) preserving all formatting.
+  ```bash
+  mandy ls | cat
+  ```
+- **Sanitized**: Use the `--strip` or `-s` flag to receive a condensed version with whitespace normalized and empty lines removed.
+  ```bash
+  mandy ls -s | cat
+  ```
+- **JSON**: Pipe the output to `ys` to get a machine-readable JSON representation.
+  ```bash
+  mandy ls | ys -J -
+  ```
 
 ## 🧠 Dev Notes
 Check out `GEMINI.md` for technical learnings and `PLAN.md` for the roadmap.
