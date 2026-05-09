@@ -46,16 +46,24 @@
   (map second (re-seq #"(?:^|\s|,)(-{1,2}[a-zA-Z0-9-]+)" line)))
 
 (defn find-variants [command structured-data context-string]
-  (let [pattern (re-pattern (str "(?i)" context-string))]
+  (let [pattern (re-pattern (str "(?i)\\b" context-string "\\b"))]
     (->> structured-data
          (mapcat (fn [section]
                    (let [[heading line-maps] (first section)]
                      (if (#{"SYNOPSIS" "PREFACE"} heading)
                        []
-                       (filter #(re-find pattern (:text %)) line-maps)))))
-         (mapcat (fn [lm]
-                   (let [tokens (extract-tokens (:text lm))]
-                     (map #(str command " " %) tokens))))
+                       (:matches
+                        (reduce (fn [acc lm]
+                                  (let [tokens (extract-tokens (:text lm))
+                                        current-tokens (if (seq tokens) tokens (:last-tokens acc))]
+                                    (if (re-find pattern (:text lm))
+                                      (-> acc
+                                          (update :matches into current-tokens)
+                                          (assoc :last-tokens current-tokens))
+                                      (assoc acc :last-tokens current-tokens))))
+                                {:matches [] :last-tokens []}
+                                line-maps))))))
+         (map #(str command " " %))
          distinct)))
 
 (defn -main [& args]
