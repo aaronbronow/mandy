@@ -1,4 +1,18 @@
 !yamlscript/v0
-# Mandy Base Plugin
-# Returns the list of sections we care about
-vector("SYNOPSIS", "EXAMPLES")
+
+# Mandy Base Plugin - Robust Clojure Parser
+# Fully balanced flow mode to avoid YAML scanner issues
+
+=>:
+  (clojure.core/let [lines ($ .input)]
+    (clojure.core/reduce
+      (clojure.core/fn [acc line]
+        (clojure.core/let [trimmed (clojure.string/trim line)]
+          (if (clojure.core/re-find #"^[A-Z][A-Z\s]{2,}$" trimmed)
+            (clojure.core/conj acc {trimmed []})
+            (clojure.core/let [last-map (clojure.core/peek acc)
+                               header (clojure.core/first (clojure.core/keys last-map))
+                               body (clojure.core/get last-map header)]
+              (clojure.core/assoc (clojure.core/pop acc) header (clojure.core/conj body line))))))
+      [{"PREAMBLE" []}]
+      lines))

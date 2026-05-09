@@ -4,6 +4,7 @@
 - **Library vs CLI**: The `@yaml/yamlscript` library (JS bindings) is sensitive to how variables are passed. Concatenating `input =: <data>` to the top of the script is a robust way to inject variables.
 - **Large Content Parsing**: Passing entire man pages into a YAMLScript literal can fail if the content contains characters that confuse the YAML scanner (e.g., specific colon/space combinations). 
 - **Robust Pattern**: Use YS for configuration/strategy (e.g., "which sections to search") and handle high-volume text processing in TypeScript/Zsh for stability.
+- **Data Mode**: For documents that represent data (like a sequence of section maps), use the `!yamlscript/v0/data` tag. This allows the use of standard YAML sequences (`-`) which are prohibited in the default "code mode" of `!yamlscript/v0`.
 
 ## Powerlevel10k & Prompt Integration
 - **Runtime Injection**: To add a prompt indicator at runtime (after `~/.zshrc` is sourced):
