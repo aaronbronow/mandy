@@ -216,7 +216,7 @@ async function main() {
 
             const statusLineY = term.height - 2;
             term.moveTo(1, statusLineY);
-            term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | V: View | ^X: Exit `);
+            term.bgWhite.black.eraseLine(` Mandy: ${cmd} | Tab: Cycle | Enter: Add | V: View | Q: Exit `);
 
             const builderBarY = term.height - 1;
             term.moveTo(1, builderBarY);
