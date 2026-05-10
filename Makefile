@@ -1,4 +1,7 @@
-.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search build
+.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search build release-all
+
+VERSION := 0.1.0
+JAR_NAME := mandy-$(VERSION)-standalone.jar
 
 all: mandy-cli mandy-ui
 
@@ -6,12 +9,18 @@ mandy: mandy-cli
 
 build: mandy-cli mandy-ui
 
+# 1. Clojure Component (Uberjar + Wrapper)
 mandy-cli:
+	clj -T:build uber
 	@echo '#!/usr/bin/env bash' > mandy
-	@echo 'clj -M -m mandy.main "$$@"' >> mandy
+	@echo 'INSTALL_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)"' >> mandy
+	@echo 'JAR_PATH="$$INSTALL_DIR/mandy.jar"' >> mandy
+	@echo 'if [ ! -f "$$JAR_PATH" ]; then JAR_PATH="$$INSTALL_DIR/target/$(JAR_NAME)"; fi' >> mandy
+	@echo 'java -jar "$$JAR_PATH" "$$@"' >> mandy
 	@chmod +x mandy
-	@echo "Created mandy wrapper"
+	@echo "Created mandy wrapper (points to target/$(JAR_NAME))"
 
+# 2. TUI Component (Compiled Bun Binary)
 mandy-ui:
 	npm run build
 
@@ -21,7 +30,7 @@ shell: mandy-ui
 clean:
 	clj -T:build clean
 	rm -f mandy
-	rm -rf dist bin
+	rm -rf dist bin release
 
 test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search
 
@@ -87,15 +96,26 @@ run-tui: mandy-ui
 	fi ; \
 	MANDY_PAYLOAD_PATH=$$FINAL_PATH bun run src/index.ts
 
-# Release Packaging
-OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
-ARCH := $(shell uname -m)
-VERSION := 0.1.0
-
-dist: mandy-cli mandy-ui
-	mkdir -p dist-pkg/bin
-	cp mandy dist-pkg/bin/
-	cp bin/mandy-ui dist-pkg/bin/
-	tar -czf mandy-v$(VERSION)-$(OS)-$(ARCH).tar.gz -C dist-pkg .
-	rm -rf dist-pkg
-	@echo "Created release: mandy-v$(VERSION)-$(OS)-$(ARCH).tar.gz"
+# 3. Release Orchestration
+release-all: clean
+	mkdir -p release
+	# Build the Uberjar once
+	clj -T:build uber
+	# Build for each target
+	for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do \
+		echo "Building for $$target..." ; \
+		bun build --compile --target=bun-$$target ./src/index.ts --outfile ./bin/mandy-ui-$$target ; \
+		mkdir -p release/mandy-v$(VERSION)-$$target/bin ; \
+		# Create the portable wrapper for the release package \
+		echo '#!/usr/bin/env bash' > release/mandy-v$(VERSION)-$$target/bin/mandy ; \
+		echo 'INSTALL_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)"' >> release/mandy-v$(VERSION)-$$target/bin/mandy ; \
+		echo 'java -jar "$$INSTALL_DIR/mandy.jar" "$$@"' >> release/mandy-v$(VERSION)-$$target/bin/mandy ; \
+		chmod +x release/mandy-v$(VERSION)-$$target/bin/mandy ; \
+		# Copy assets \
+		cp target/$(JAR_NAME) release/mandy-v$(VERSION)-$$target/bin/mandy.jar ; \
+		cp ./bin/mandy-ui-$$target release/mandy-v$(VERSION)-$$target/bin/mandy-ui ; \
+		# Package \
+		tar -czf release/mandy-v$(VERSION)-$$target.tar.gz -C release/mandy-v$(VERSION)-$$target . ; \
+		echo "Created release/mandy-v$(VERSION)-$$target.tar.gz" ; \
+	done
+	rm -rf release/mandy-v$(VERSION)-*

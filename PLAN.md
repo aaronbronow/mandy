@@ -31,6 +31,7 @@ Migrate the TUI to Bun, implement the "Search" Stage 1-3 selection logic, and se
 
 ## 5. Deployment Prototype
 - [x] Update `Makefile` to trigger:
-    - `mandy-cli` (Clojure wrapper)
-    - `mandy-ui` (bun build --compile ./src/index.ts --outfile ./bin/mandy-ui)
-- [ ] Draft `install.sh` for binary distribution.
+    - `mandy-cli` (Portable Uberjar + Shell Wrapper)
+    - `mandy-ui` (bun build --compile for multiple targets)
+- [x] Create `release-all` target for cross-platform distribution.
+- [x] Draft `scripts/install.sh` for binary distribution.

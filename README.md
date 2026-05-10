@@ -6,27 +6,26 @@ Mandy is a manual discovery tool that turns crusty man pages into structured, in
 
 Mandy is split into a **Native Parser** and a **Bun-compiled TUI**.
 
-### 1. Requirements
-- **Bun**: Required to run and build the TUI.
-  ```bash
-  curl -fsSL https://bun.sh/install | bash
-  ```
+### 1. Quick Install (Linux & macOS)
+Run the following to install the latest binaries to `/usr/local/bin`:
+```bash
+curl -sSL https://raw.githubusercontent.com/aaronbronow/mandy/main/scripts/install.sh | bash
+```
+
+### 2. Requirements
+- **Java (JRE 8+)**: Required to run the Clojure parser.
+- **Bun**: Required to build the TUI from source.
 - **YAMLScript**: Required for high-level data processing.
   ```bash
   curl -sSL https://yamlscript.org/install | bash
   ```
 
-### 2. Get Mandy
-... (No changes needed to Options A/B) ...
-
-#### Option B: Developers (Requires Clojure/JDK)
-If you want to build from source:
+### 3. Build from Source (Developers)
 ```bash
 git clone https://github.com/aaronbronow/mandy.git
 cd mandy
 bun install
-make mandy-ui
-make mandy-cli
+make all
 ```
 
 ## 🛠 Project Structure

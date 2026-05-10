@@ -159,9 +159,15 @@
                       :cmd command})
             tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
             _ (spit tmp-file payload)
-            mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
-            tui-path (str mandy-root "/src/index.ts")
-            pb (ProcessBuilder. (into ["bun" "run" tui-path] args))
+            ;; Locate TUI binary relative to the JAR or fall back to dev path
+            jar-path (-> (System/getProperty "java.class.path") 
+                         (str/split (re-pattern (System/getProperty "path.separator"))) 
+                         first io/file .getAbsoluteFile .getParent)
+            mandy-ui-bin (io/file jar-path "mandy-ui")
+            tui-cmd (if (.exists mandy-ui-bin)
+                      [(.getAbsolutePath mandy-ui-bin)]
+                      ["bun" "run" (str (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy") "/src/index.ts")])
+            pb (ProcessBuilder. (into tui-cmd args))
             env (.environment pb)
             _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
             _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)

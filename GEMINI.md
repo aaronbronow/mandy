@@ -55,3 +55,9 @@
 - **Incremental Troff Stripping**: Raw manual source contains hundreds of potential `troff` and `mdoc` macros. We used an iterative "identify and strip" approach to clean the `zgrep` snippets. The final logic handles paragraphing (`.PP`, `.IP`), indentation (`.INDENT`), font changes (`\fB`, `\sN`), and specific BSD/mdoc prefixes (`.Ar`, `.Fl`, `.Ic`, `.It`), providing human-readable context without the overhead of full `man` rendering.
 - **Agent-First YAML**: The search results use the command name as the primary key (`RESULTS: { cmd: { path: ..., context: [...] } }`). This flat structure allows LLM agents to instantly index and evaluate multiple candidates in a single pass.
 - **Dynamic CLI/TUI Routing**: Implementing separate flags for CLI (`-k`) and TUI (`-K`) search while sharing the underlying search logic provides a flexible interface that caters to both scripted and interactive use cases.
+
+## Deployment & Portability (Beta 0.1)
+- **Hybrid Distribution**: For polyglot tools, a hybrid distribution model works best for Beta releases. We distribute the Clojure component as a portable Uberjar (requiring only a JRE) and the TypeScript TUI as a zero-dependency Bun-compiled binary.
+- **Dynamic Binary Discovery**: Hardcoding paths breaks portability. The parser now dynamically locates the TUI binary by checking its own installation directory (via the Java classpath), allowing the components to move together as a single package.
+- **Cross-Compilation with Bun**: Bun's native support for `--target` allows us to build binaries for Linux and macOS (x64/arm64) from a single development machine, simplifying the release pipeline significantly.
+- **One-liner Installers**: Providing a shell script that auto-detects architecture and downloads the correct tarball is the industry standard for CLI tools, providing a friction-free "Quick Start" for users.
