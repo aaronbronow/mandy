@@ -36,9 +36,10 @@ make mandy-cli
 - **`.mandyrc`**: The shell bridge for prompt injection.
 
 ## 🧪 Try It Out
-Run mandy on any command:
+Run mandy on any command or local file:
 ```bash
 mandy ls
+mandy ./README.md
 ```
 
 ## ⌨️ Modes & Shortcuts

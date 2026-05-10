@@ -2,6 +2,7 @@
   (:require [clj-yaml.core :as yaml]
             [cheshire.core :as json]
             [clojure.string :as str]
+            [clojure.java.io :as io]
             [clojure.java.shell :refer [sh]])
   (:import [java.lang ProcessBuilder]
            [java.lang ProcessBuilder$Redirect])
@@ -122,11 +123,23 @@
           (println "Usage: mandy <command> [-c context] [-A n] [--json]") 
           (System/exit 1)))
 
-    (let [man-raw (try 
-                    (let [raw (:out (sh "bash" "-c" (str "man " command " | col -b")))]
+    (let [file (io/file command)
+          is-file (and (.exists file) (.isFile file))
+          is-md (and is-file (str/ends-with? command ".md"))
+          man-cmd (cond
+                    is-md (let [pandoc-check (sh "which" "pandoc")]
+                            (if (zero? (:exit pandoc-check))
+                              (str "pandoc -s -t man " command " | man -l - | col -b")
+                              (do (binding [*out* *err*]
+                                    (println "Error: 'pandoc' is required to parse Markdown files. Please install it first."))
+                                  (System/exit 1))))
+                    is-file (str "man -l " command " | col -b")
+                    :else (str "man " command " | col -b"))
+          man-raw (try 
+                    (let [raw (:out (sh "bash" "-c" man-cmd))]
                       (str/replace raw "\t" "        "))
                     (catch Exception e 
-                      (binding [*out* *err*] (println "Error: Command not found"))
+                      (binding [*out* *err*] (println "Error: Command or file not found"))
                       (System/exit 1)))
           
           lines (str/split-lines man-raw)

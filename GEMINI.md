@@ -44,3 +44,7 @@
 - **Live Snap Logic**: Providing a "Live Snap" (immediately updating the active token as you cycle search matches) creates a much more responsive feel than waiting for a confirmation key. 
 - **Distance Weighting for Manuals**: Standard Manhattan distance is insufficient for man pages. Descriptions of flags are almost always *below* the flag itself. The formula was optimized to favor tokens with a positive vertical distance (token is above match), ensuring searching for a keyword in a description snaps back to the preceding flag.
 - **Centered Scrolling**: Jumping to search results is jarring if they appear at the very top or bottom of the screen. Implementing a centered scroll helper ensures the user has immediate visual context above and below the match.
+
+## Local File Resolution (Beta 0.1)
+- **Dynamic Man Pipelines**: Using `man -l` allows the parser to consume local files as if they were system man pages. For Markdown, piping through `pandoc -s -t man` provides a high-quality conversion to the `roff` format required by `man`.
+- **Pre-flight Dependency Checks**: When implementing features that depend on external tools (like `pandoc`), performing a pre-flight check with `sh "which" tool` allows for much friendlier error messages than a raw shell execution failure.

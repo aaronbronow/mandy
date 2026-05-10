@@ -19,9 +19,9 @@ Migrate the TUI to Bun, implement the "Search" Stage 1-3 selection logic, and se
 
 
 ## 3. Local File Resolution (Clojure Core)
-- [ ] Update argument parser to check `(fs/exists? arg)`.
-- [ ] If path exists, use `man -l path`.
-- [ ] If file ends in `.md`, add `pandoc -s -t man path | man -l -` to the pipeline.
+- [x] Update argument parser to check `(fs/exists? arg)`.
+- [x] If path exists, use `man -l path`.
+- [x] If file ends in `.md`, add `pandoc -s -t man path | man -l -` to the pipeline.
 
 ## 4. Deep Search Router (Clojure Core)
 - [ ] Implement `-K` flag logic.
