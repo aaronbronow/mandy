@@ -12,7 +12,7 @@
 
 (defn uber [_]
   (clean nil)
-  (b/copy-dir {:src-dirs ["src/clj"]
+  (b/copy-dir {:src-dirs ["src/clj" "plugins"]
                :target-dir class-dir})
   (b/compile-clj {:basis basis
                   :src-dirs ["src/clj"]
@@ -30,4 +30,5 @@
                              "mandy"
                              "--no-fallback"
                              "--initialize-at-build-time"
+                             "-H:IncludeResources=base.ys"
                              "-H:+ReportExceptionStackTraces"]}))

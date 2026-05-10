@@ -134,9 +134,13 @@
         
         ;; Use the embedded YAMLScript engine for parsing
         mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
-        base-plugin (str mandy-root "/plugins/base.ys")
+        base-plugin-res (io/resource "base.ys")
+        base-plugin-file (io/file mandy-root "plugins/base.ys")
         structured-data (try
-                          (ys/load (slurp base-plugin) {"input-text" man-raw})
+                          (let [plugin-content (if base-plugin-res
+                                                 (slurp base-plugin-res)
+                                                 (slurp base-plugin-file))]
+                            (ys/load plugin-content {"input-text" man-raw}))
                           (catch Exception e
                             (binding [*out* *err*] (println "Error: YAMLScript parsing failed:" (.getMessage e)))
                             ;; Fallback to internal Clojure logic if YS fails
@@ -260,9 +264,13 @@
                 man-raw (:out (sh "bash" "-c" man-cmd))
                 
                 mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
-                base-plugin (str mandy-root "/plugins/base.ys")
+                base-plugin-res (io/resource "base.ys")
+                base-plugin-file (io/file mandy-root "plugins/base.ys")
                 structured-data (try
-                                  (ys/load (slurp base-plugin) {"input-text" man-raw})
+                                  (let [plugin-content (if base-plugin-res
+                                                         (slurp base-plugin-res)
+                                                         (slurp base-plugin-file))]
+                                    (ys/load plugin-content {"input-text" man-raw}))
                                   (catch Exception e
                                     (parse-man (map-indexed vector (str/split-lines man-raw)))))
                 

@@ -100,13 +100,8 @@ release-all: clean
 		echo "Building for $$target..." ; \
 		bun build --compile --target=bun-$$target ./src/index.ts --outfile ./bin/mandy-ui-$$target ; \
 		mkdir -p release/mandy-v$(VERSION)-$$target/bin ; \
-		# Create the portable wrapper for the release package \
-		echo '#!/usr/bin/env bash' > release/mandy-v$(VERSION)-$$target/bin/mandy ; \
-		echo 'INSTALL_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)"' >> release/mandy-v$(VERSION)-$$target/bin/mandy ; \
-		echo 'java -jar "$$INSTALL_DIR/mandy.jar" "$$@"' >> release/mandy-v$(VERSION)-$$target/bin/mandy ; \
-		chmod +x release/mandy-v$(VERSION)-$$target/bin/mandy ; \
 		# Copy assets \
-		cp target/$(JAR_NAME) release/mandy-v$(VERSION)-$$target/bin/mandy.jar ; \
+		cp mandy release/mandy-v$(VERSION)-$$target/bin/mandy ; \
 		cp ./bin/mandy-ui-$$target release/mandy-v$(VERSION)-$$target/bin/mandy-ui ; \
 		# Package \
 		tar -czf release/mandy-v$(VERSION)-$$target.tar.gz -C release/mandy-v$(VERSION)-$$target . ; \
