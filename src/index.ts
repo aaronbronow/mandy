@@ -1,17 +1,9 @@
 #!/usr/bin/env node
-import { execSync } from 'child_process';
 import { writeFileSync, readFileSync, openSync, fsyncSync, closeSync } from 'fs';
 import { join } from 'path';
 // @ts-ignore
 import * as termKit from 'terminal-kit';
 import * as yaml from 'js-yaml';
-
-const term = termKit.createTerminal({
-    stdin: process.stdin,
-    stdout: process.stdout,
-    stderr: process.stderr,
-    name: process.env.TERM || 'xterm-256color'
-});
 
 interface LineMap {
     originalIndex: number;
@@ -36,6 +28,12 @@ enum ViewMode {
 }
 
 async function main() {
+    const term = termKit.createTerminal({
+        stdin: process.stdin,
+        stdout: process.stdout,
+        stderr: process.stderr,
+        name: process.env.TERM || 'xterm-256color'
+    });
     const args = process.argv.slice(2);
 
     // Read the pre-parsed payload from the Clojure wrapper via temporary file
@@ -259,7 +257,7 @@ async function main() {
             render();
         };
 
-        term.on('key', (name: string) => {
+        const handleKey = (name: string) => {
             if (focusArea === FocusArea.TEXT_AREA) {
                 switch (name) {
                     case 'CTRL_C':
@@ -350,7 +348,9 @@ async function main() {
                         break;
                 }
             }
-        });
+        };
+
+        term.on('key', handleKey);
 
         term.on('mouse', (name: string, data: any) => {
             if (name === 'MOUSE_LEFT_BUTTON_PRESSED') {
@@ -391,6 +391,15 @@ async function main() {
         });
 
         render();
+
+        // Automated Testing Mode
+        const testKeys = process.env.MANDY_TEST_KEYS;
+        if (testKeys) {
+            const keys = testKeys.split(',');
+            for (const key of keys) {
+                handleKey(key.trim());
+            }
+        }
 
     } catch (error: any) {
         term.fullscreen(false);

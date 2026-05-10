@@ -4,10 +4,10 @@
 Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and set up the local file resolution.
 
 ## 1. Environment Transition (Node -> Bun)
-- [ ] Update `package.json` dependencies for Bun compatibility.
-- [ ] Replace `child_process` calls with `Bun.spawn` or `Bun.$` for performance.
-- [ ] Verify `terminal-kit` lifecycle under Bun's event loop.
-- [ ] Scaffold `bun build --compile` script.
+- [x] Update `package.json` dependencies for Bun compatibility.
+- [x] Replace `child_process` calls with `Bun.spawn` or `Bun.$` for performance.
+- [x] Verify `terminal-kit` lifecycle under Bun's event loop.
+- [x] Scaffold `bun build --compile` script.
 
 ## 2. Sniper Selection Logic (TUI)
 - [ ] **Search Mode**: Implement `/` input buffer. On `change`, search Model A and `term.moveTo` the first match.
@@ -27,7 +27,7 @@ Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and se
 - [ ] If 1 result, proceed to standard Discovery flow.
 
 ## 5. Deployment Prototype
-- [ ] Create `scripts/build.sh` that triggers:
-    - `lein native-image` (Clojure)
-    - `bun build --compile ./src/index.ts --outfile ./bin/mandy-ui`
+- [x] Update `Makefile` to trigger:
+    - `native` (Clojure via clj -T:build)
+    - `build-ts` (bun build --compile ./src/index.ts --outfile ./bin/mandy-ui)
 - [ ] Draft `install.sh` for binary distribution.

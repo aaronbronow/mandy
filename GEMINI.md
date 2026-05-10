@@ -38,3 +38,8 @@
 - **Handshake 2.0 (Temp Files)**: Passing data through `stdin` to a child process effectively consumes the terminal's input stream, breaking TUI interactivity. Using a temporary file for the data handshake while inheriting `stdin` from the parent allows the child process to receive real-time TTY events (keystrokes/mouse).
 - **Universal Token Extraction**: Removing positional restrictions (like `startsWith('-')`) on token extraction allows flags to be identified and interactive anywhere in a document, including within prose and explanatory notes.
 - **Word Boundary Regex**: Enforcing `\b` word boundaries in substring searches is critical for reducing false positives (e.g., preventing a search for "log" from matching "logical").
+
+## Headless Automation & Bun (Beta 0.1)
+- **Bun Binary Compilation**: `bun build --compile` creates self-contained binaries, but beware of dynamic `require()` or `import` calls in dependencies (like `terminal-kit`'s terminal detection) which may fail if the module structure isn't fully statically analyzable or if they expect a specific file layout on disk.
+- **Automated TUI Testing**: Implementing a "Playback Mode" via an environment variable (e.g., `MANDY_TEST_KEYS="UP,ENTER"`) allows for reliable automated functional testing. By extracting the key handler into a named function, we can programmatically trigger UI logic and verify output without a manual TTY session.
+- **Native Bun Speed**: Migrating from `node`/`ts-node` to `bun run` significantly reduces startup latency for the TUI component, essential for maintaining a "native feel" in polyglot CLI tools.

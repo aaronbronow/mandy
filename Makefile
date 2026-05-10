@@ -13,7 +13,7 @@ shell: build-ts
 clean:
 	clj -T:build clean
 	rm -f mandy
-	rm -rf dist
+	rm -rf dist bin
 
 test: test-debug test-sanitized
 
@@ -28,7 +28,7 @@ test-tokens:
 
 debug-tui: build-ts
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main $(or $(CMD),ls)) ; \
-	MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH node dist/index.js $(or $(CMD),ls)
+	MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts $(or $(CMD),ls)
 
 debug-payload:
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main $(or $(CMD),ls)) || { echo "" > .mandy_payload_path ; exit 1 ; } ; \
@@ -43,7 +43,7 @@ run-tui: build-ts
 		echo "Error: No valid payload found. Run 'make debug-payload' first or provide FILE="; \
 		exit 1; \
 	fi ; \
-	MANDY_PAYLOAD_PATH=$$FINAL_PATH node dist/index.js
+	MANDY_PAYLOAD_PATH=$$FINAL_PATH bun run src/index.ts
 
 # Release Packaging
 OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
@@ -51,9 +51,9 @@ ARCH := $(shell uname -m)
 VERSION := 0.1.0
 
 dist: native build-ts
-	mkdir -p dist-pkg/bin dist-pkg/lib
+	mkdir -p dist-pkg/bin
 	cp mandy dist-pkg/bin/
-	cp -r dist/* dist-pkg/lib/
+	cp bin/mandy-ui dist-pkg/bin/
 	tar -czf mandy-v$(VERSION)-$(OS)-$(ARCH).tar.gz -C dist-pkg .
 	rm -rf dist-pkg
 	@echo "Created release: mandy-v$(VERSION)-$(OS)-$(ARCH).tar.gz"
