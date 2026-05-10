@@ -11,7 +11,7 @@ build: mandy-cli mandy-ui
 
 # 1. Clojure Component (Native Image)
 mandy-cli:
-	clj -T:build native
+	clojure -T:build native
 	@echo "Created mandy native binary"
 
 # 2. TUI Component (Compiled Bun Binary)
@@ -22,23 +22,23 @@ shell: mandy-ui
 	ZDOTDIR=$$PWD zsh -is eval "source .mandyrc"
 
 clean:
-	clj -T:build clean
+	clojure -T:build clean
 	rm -f mandy
 	rm -rf dist bin release
 
 test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search
 
 test-debug:
-	clj -M -m mandy.main pwd --debug
+	clojure -M -m mandy.main pwd --debug
 
 test-sanitized:
-	clj -M -m mandy.main pwd --strip
+	clojure -M -m mandy.main pwd --strip
 
 test-tokens:
-	clj -M -m mandy.main ls --debug | ys -J -
+	clojure -M -m mandy.main ls --debug | ys -J -
 
 test-tui-select: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main ls) ; \
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
 	rm -f /tmp/mandy_buffer ; \
 	MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
 	if [ -f /tmp/mandy_buffer ]; then \
@@ -49,7 +49,7 @@ test-tui-select: mandy-ui
 	fi
 
 test-tui-quit: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main ls) ; \
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
 	rm -f /tmp/mandy_buffer ; \
 	MANDY_TEST_KEYS="q" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
 	if [ -f /tmp/mandy_buffer ]; then \
@@ -59,7 +59,7 @@ test-tui-quit: mandy-ui
 	fi
 
 test-tui-search: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main ls) ; \
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
 	rm -f /tmp/mandy_buffer ; \
 	MANDY_TEST_KEYS="/,-,-,a,l,l,ENTER,ENTER,ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
 	if [ -f /tmp/mandy_buffer ] && grep -q "\--all" /tmp/mandy_buffer; then \
@@ -72,11 +72,11 @@ test-tui-search: mandy-ui
 	fi
 
 debug-tui: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main $(or $(CMD),ls)) ; \
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main $(or $(CMD),ls)) ; \
 	MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts $(or $(CMD),ls)
 
 debug-payload:
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main $(or $(CMD),ls)) || { echo "" > .mandy_payload_path ; exit 1 ; } ; \
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main $(or $(CMD),ls)) || { echo "" > .mandy_payload_path ; exit 1 ; } ; \
 	echo $$PAYLOAD_PATH > .mandy_payload_path ; \
 	cat $$PAYLOAD_PATH ; \
 	echo "\nPayload saved to: $$PAYLOAD_PATH"
@@ -94,7 +94,7 @@ run-tui: mandy-ui
 release-all: clean
 	mkdir -p release
 	# Build the Uberjar once
-	clj -T:build uber
+	clojure -T:build uber
 	# Build for each target
 	for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do \
 		echo "Building for $$target..." ; \
