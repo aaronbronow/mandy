@@ -8,6 +8,7 @@ Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and se
 - [x] Replace `child_process` calls with `Bun.spawn` or `Bun.$` for performance.
 - [x] Verify `terminal-kit` lifecycle under Bun's event loop.
 - [x] Scaffold `bun build --compile` script.
+- [x] Implement automated TUI testing via `MANDY_TEST_KEYS`.
 
 ## 2. Sniper Selection Logic (TUI)
 - [ ] **Search Mode**: Implement `/` input buffer. On `change`, search Model A and `term.moveTo` the first match.

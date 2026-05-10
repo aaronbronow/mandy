@@ -60,14 +60,18 @@ Mandy provides two perspectives on the manual, both fully interactive:
 
 ## 🔄 Development Loop
 1. **Edit** Clojure logic in `src/clj/` or TUI logic in `src/index.ts`.
-2. **Test**: `make test` or `make test-tokens`.
-3. **Build**: `make native` and `make build-ts`.
+2. **Test**: `make test` (includes automated TUI tests).
+3. **Build**: `make mandy-cli` and `make mandy-ui`.
 
 ## 🤖 Automated TUI Testing
 Mandy supports "Headless Playback" for automated functional testing. Set the `MANDY_TEST_KEYS` environment variable to a comma-separated list of key names to simulate user input:
 ```bash
 # Select the first token and exit automatically
 MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=payload.json bun run src/index.ts
+
+# Or run the integrated tests
+make test-tui-select
+make test-tui-quit
 ```
 
 ## 🧠 Dev Notes
