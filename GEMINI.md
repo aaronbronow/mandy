@@ -48,3 +48,9 @@
 ## Local File Resolution (Beta 0.1)
 - **Dynamic Man Pipelines**: Using `man -l` allows the parser to consume local files as if they were system man pages. For Markdown, piping through `pandoc -s -t man` provides a high-quality conversion to the `roff` format required by `man`.
 - **Pre-flight Dependency Checks**: When implementing features that depend on external tools (like `pandoc`), performing a pre-flight check with `sh "which" tool` allows for much friendlier error messages than a raw shell execution failure.
+
+## Deep Search Router (Beta 0.1)
+- **Global Apropos**: `man -K` is inherently interactive, making it unsuitable for automated routers. Using `man -wK` instead provides a non-interactive list of matching file paths, which can then be parsed and processed.
+- **Section Filtering**: Searching the full text of all manuals is slow and often returns irrelevant results from development or kernel headers (sections 2, 3, 7, 9). Defaulting the search scope to sections **1, 6, and 8** via `man -S 1:6:8 -wK` significantly improves both performance and the quality of results for an average user.
+- **Zgrep Context Extraction**: Extracting context from compressed manual files is much faster using `zgrep` than full `man` rendering. Combining this with a basic `troff` stripper in Clojure provides high-fidelity snippets for LLM agents without a heavy performance penalty.
+- **Dynamic CLI/TUI Routing**: Implementing separate flags for CLI (`-k`) and TUI (`-K`) search while sharing the underlying search logic provides a flexible interface that caters to both scripted and interactive use cases.

@@ -17,6 +17,14 @@
       (str/replace #"\s+" " ")
       str/trim))
 
+(defn strip-troff [line]
+  (-> line
+      (str/replace #"\\f[BIRP]" "")           ; Strip \fB, \fI, etc.
+      (str/replace #"^\.[BIRP]\s+" "")        ; Strip leading .B, .I
+      (str/replace #"^\.[a-z]{2}\s+" "")      ; Strip leading other macros like .sp
+      (str/replace #"\\\(.." "")             ; Strip complex characters like \(bu
+      (str/replace #"\\." "")))               ; Strip remaining backslash escapes
+
 (defn parse-man [indexed-lines]
   (reduce (fn [acc [idx line]]
             (if (heading? line)
@@ -76,13 +84,14 @@
          distinct)))
 
 (defn display-help []
-  (println "🌿 Mandy - Manual Discovery Tool (Alpha 0.3)")
+  (println "🌿 Mandy - Manual Discovery Tool (Beta 0.1)")
   (println "")
   (println "Usage:")
   (println "  mandy <command>                 Start interactive TUI")
-  (println "  mandy <command> | cat           Output raw YAMLScript data (High Fidelity)")
-  (println "  mandy <command> -c <context>    Discover command variants matching context")
-  (println "  mandy <command> -A <n>          Include <n> lines of trailing context")
+  (println "  mandy <command> | cat           Output raw YAMLScript data")
+  (println "  mandy -k <keyword>              CLI Deep Search across all manuals")
+  (println "  mandy -K <keyword>              TUI Deep Search across all manuals")
+  (println "  mandy <file.md>                 Render local Markdown via pandoc")
   (println "")
   (println "Discovery Options:")
   (println "  -c, --context <string>    Search for command variants matching <string>")
@@ -92,11 +101,67 @@
   (println "General Options:")
   (println "  -d, --debug               Output raw YAMLScript and exit")
   (println "  -s, --strip               Output sanitized YAMLScript (condensed whitespace)")
-  (println "  -h, --help                Show this help message")
-  (println "")
-  (println "Agentic Discovery:")
-  (println "  For fast, non-interactive discovery, use the -c and -A flags.")
-  (println "  Mandy is instant (<10ms) when bypassing the TUI."))
+  (println "  -h, --help                Show this help message"))
+
+(defn run-discovery [command args is-debug is-strip is-tty]
+  (let [man-cmd (let [file (io/file command)
+                      is-file (and (.exists file) (.isFile file))
+                      is-md (and is-file (str/ends-with? command ".md"))]
+                  (cond
+                    is-md (let [pandoc-check (sh "which" "pandoc")]
+                            (if (zero? (:exit pandoc-check))
+                              (str "pandoc -s -t man " command " | man -l - | col -b")
+                              (do (binding [*out* *err*]
+                                    (println "Error: 'pandoc' is required to parse Markdown files. Please install it first."))
+                                  (System/exit 1))))
+                    is-file (str "man -l " command " | col -b")
+                    :else (str "man " command " | col -b")))
+        man-raw (try 
+                  (let [raw (:out (sh "bash" "-c" man-cmd))]
+                    (str/replace raw "\t" "        "))
+                  (catch Exception e 
+                    (binding [*out* *err*] (println "Error: Command or file not found"))
+                    (System/exit 1)))
+        lines (str/split-lines man-raw)
+        indexed-lines (map-indexed vector lines)
+        structured-data (parse-man indexed-lines)
+        raw-yaml (generate-yaml structured-data false)
+        sanitized-yaml (generate-yaml structured-data true)]
+
+    (cond
+      (System/getenv "MANDY_DRY_RUN")
+      (let [payload (json/generate-string 
+                     {:rawYaml raw-yaml
+                      :sanitizedYaml sanitized-yaml
+                      :structuredData structured-data
+                      :cmd command})
+            tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
+            _ (spit tmp-file payload)]
+        (println (.getAbsolutePath tmp-file))
+        (System/exit 0))
+
+      (or is-debug is-strip (not is-tty))
+      (println (if is-strip sanitized-yaml raw-yaml))
+
+      :else
+      (let [payload (json/generate-string 
+                     {:rawYaml raw-yaml
+                      :sanitizedYaml sanitized-yaml
+                      :structuredData structured-data
+                      :cmd command})
+            tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
+            _ (spit tmp-file payload)
+            mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
+            tui-path (str mandy-root "/src/index.ts")
+            pb (ProcessBuilder. (into ["bun" "run" tui-path] args))
+            env (.environment pb)
+            _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
+            _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+            _ (.redirectError pb java.lang.ProcessBuilder$Redirect/INHERIT)
+            _ (.redirectOutput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+            proc (.start pb)]
+        (.waitFor proc)
+        (.delete tmp-file)))))
 
 (defn -main [& args]
   (let [is-help (some #{"--help" "-h"} args)
@@ -104,6 +169,11 @@
         is-strip (some #{"--strip" "-s"} args)
         is-json (some #{"--json"} args)
         is-tty (not (nil? (System/console)))
+        
+        ;; Deep Search Flags
+        is-deep-cli (some #{"-k"} args)
+        is-deep-tui (some #{"-K"} args)
+        
         command (first (remove #(str/starts-with? % "-") args))
         
         ;; Context search parsing
@@ -118,83 +188,68 @@
       (display-help)
       (System/exit 0))
 
-    (if-not command
-      (do (println "Error: No command specified.")
-          (println "Usage: mandy <command> [-c context] [-A n] [--json]") 
-          (System/exit 1)))
+    (if (or is-deep-cli is-deep-tui)
+      (let [keyword command
+            _ (when-not keyword (do (println "Error: No keyword provided for deep search.") (System/exit 1)))
+            _ (binding [*out* *err*] (print (str "Searching for \"" keyword "\"... ")) (flush))
+            search-all? (System/getenv "MANDY_ALL_SECTIONS")
+            section-flag (if search-all? "" "-S 1:6:8 ")
+            search-cmd (str "man " section-flag "-wK \"" keyword "\" 2>/dev/null")
+            results-raw (:out (sh "bash" "-c" search-cmd))
+            _ (binding [*out* *err*] (println "Done."))
+            paths (->> (str/split-lines results-raw)
+                       (remove str/blank?)
+                       distinct)
+            results (for [path paths]
+                      (let [filename (last (str/split path #"/"))
+                            cmd-name (first (str/split filename #"\."))
+                            context-raw (:out (sh "bash" "-c" (str "zgrep -i -m 1 -C 1 \"" keyword "\" " path " 2>/dev/null")))
+                            context (->> (str/split-lines context-raw)
+                                         (map strip-troff)
+                                         (map sanitize)
+                                         (remove str/blank?))]
+                        [cmd-name {:path path :context context}]))
+            unique-results (->> results
+                                (group-by first)
+                                (map (fn [[_ group]] (first group)))
+                                (into (array-map)))]
+        (cond
+          (empty? unique-results)
+          (do (println "No results found.") (System/exit 0))
 
-    (let [file (io/file command)
-          is-file (and (.exists file) (.isFile file))
-          is-md (and is-file (str/ends-with? command ".md"))
-          man-cmd (cond
-                    is-md (let [pandoc-check (sh "which" "pandoc")]
-                            (if (zero? (:exit pandoc-check))
-                              (str "pandoc -s -t man " command " | man -l - | col -b")
-                              (do (binding [*out* *err*]
-                                    (println "Error: 'pandoc' is required to parse Markdown files. Please install it first."))
-                                  (System/exit 1))))
-                    is-file (str "man -l " command " | col -b")
-                    :else (str "man " command " | col -b"))
-          man-raw (try 
-                    (let [raw (:out (sh "bash" "-c" man-cmd))]
-                      (str/replace raw "\t" "        "))
-                    (catch Exception e 
-                      (binding [*out* *err*] (println "Error: Command or file not found"))
-                      (System/exit 1)))
-          
-          lines (str/split-lines man-raw)
-          indexed-lines (map-indexed vector lines)
-          structured-data (parse-man indexed-lines)
-          
-          raw-yaml (generate-yaml structured-data false)
-          sanitized-yaml (generate-yaml structured-data true)]
+          (= 1 (count unique-results))
+          (let [match (first (keys unique-results))]
+            (if is-deep-cli
+              (run-discovery match [] true false is-tty)
+              (run-discovery match [] false false is-tty)))
 
-      (cond
-        (System/getenv "MANDY_DRY_RUN")
-        (let [payload (json/generate-string 
-                       {:rawYaml raw-yaml
-                        :sanitizedYaml sanitized-yaml
-                        :structuredData structured-data
-                        :cmd command})
-              tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
-              _ (spit tmp-file payload)]
-          (println (.getAbsolutePath tmp-file))
-          (System/exit 0))
+          :else
+          (do (println "!yamlscript/v0/data")
+              (println (yaml/generate-string {:RESULTS unique-results})))))
+      
+      (if-not command
+        (do (println "Error: No command specified.")
+            (System/exit 1))
+        
+        (if (or context-string after-n)
+          ;; Context-based discovery mode
+          (let [man-cmd (str "man " command " | col -b")
+                man-raw (:out (sh "bash" "-c" man-cmd))
+                lines (str/split-lines man-raw)
+                indexed-lines (map-indexed vector lines)
+                structured-data (parse-man indexed-lines)
+                results (if context-string
+                          (find-variants command structured-data context-string lines after-n)
+                          [{:variant command :context (if after-n (take after-n lines) [])}])]
+            (if is-json
+              (println (json/generate-string results))
+              (doseq [i (range (count results))]
+                (let [{:keys [variant context]} (nth results i)]
+                  (println variant)
+                  (doseq [ctx context] (println ctx))
+                  (when (and after-idx (> (count results) 1) (< i (dec (count results))))
+                    (println "--")))))
+            (System/exit 0))
 
-        (or context-string after-n)
-        (let [results (if context-string
-                        (find-variants command structured-data context-string lines after-n)
-                        [{:variant command :context (if after-n (take after-n lines) [])}])]
-          (if is-json
-            (println (json/generate-string results))
-            (doseq [i (range (count results))]
-              (let [{:keys [variant context]} (nth results i)]
-                (println variant)
-                (doseq [ctx context] (println ctx))
-                (when (and after-idx (> (count results) 1) (< i (dec (count results))))
-                  (println "--")))))
-          (System/exit 0))
-
-        (or is-debug is-strip (not is-tty))
-        (println (if is-strip sanitized-yaml raw-yaml))
-
-        :else
-        (let [payload (json/generate-string 
-                       {:rawYaml raw-yaml
-                        :sanitizedYaml sanitized-yaml
-                        :structuredData structured-data
-                        :cmd command})
-              tmp-file (java.io.File/createTempFile "mandy-payload-" ".json")
-              _ (spit tmp-file payload)
-              mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
-              tui-path (str mandy-root "/src/index.ts")
-              pb (ProcessBuilder. (into ["bun" "run" tui-path] args))
-              env (.environment pb)
-              _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
-              _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
-              _ (.redirectError pb java.lang.ProcessBuilder$Redirect/INHERIT)
-              _ (.redirectOutput pb java.lang.ProcessBuilder$Redirect/INHERIT)
-              proc (.start pb)]
-          (.waitFor proc)
-          (.delete tmp-file))))
+          (run-discovery command args is-debug is-strip is-tty))))
     (System/exit 0)))

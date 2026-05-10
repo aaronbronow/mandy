@@ -84,6 +84,13 @@ make test-tui-quit
 make test-tui-search
 ```
 
+## 🔍 Deep Search
+Mandy can search across all installed manual pages using the `-k` (CLI) or `-K` (TUI) flags.
+
+- **Default Scope**: For speed and relevance, Mandy only searches sections **1** (User Commands), **6** (Games), and **8** (System Administration) by default.
+- **Search All**: To search all manual sections, set the `MANDY_ALL_SECTIONS=1` environment variable.
+- **Contextual Results**: When multiple matches are found, Mandy outputs a YAML document containing the command names, file paths, and a snippet of context where the keyword was found.
+
 ## 🧠 Dev Notes
 Check out `GEMINI.md` for technical learnings and `PLAN.md` for the roadmap.
 

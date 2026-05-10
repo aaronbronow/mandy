@@ -24,9 +24,10 @@ Migrate the TUI to Bun, implement the "Search" Stage 1-3 selection logic, and se
 - [x] If file ends in `.md`, add `pandoc -s -t man path | man -l -` to the pipeline.
 
 ## 4. Deep Search Router (Clojure Core)
-- [ ] Implement `-K` flag logic.
-- [ ] If `man -K --names-only` returns > 1 result, output a YAML list of commands.
-- [ ] If 1 result, proceed to standard Discovery flow.
+- [x] Implement `-k` (CLI) and `-K` (TUI) flag logic.
+- [x] Limit search to sections 1, 6, and 8 by default; allow override via `MANDY_ALL_SECTIONS`.
+- [x] If `man -wK` returns > 1 result, output a YAML list of commands with path and context.
+- [x] If 1 result, proceed to standard Discovery flow (CLI outputs YAML, TUI launches interactive).
 
 ## 5. Deployment Prototype
 - [x] Update `Makefile` to trigger:
