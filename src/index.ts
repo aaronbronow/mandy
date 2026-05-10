@@ -111,6 +111,10 @@ async function main() {
         const uniqueTokens = extractedTokens.sort((a, b) => a.line - b.line || a.startCol - b.startCol)
             .filter((t, i, arr) => !i || (t.line !== arr[i-1]!.line || t.startCol !== arr[i-1]!.startCol));
 
+        if (process.env.MANDY_TEST_KEYS) {
+            console.error(`TUI Debug: Found ${uniqueTokens.length} unique tokens`);
+        }
+
         // 3. Mode Handling (The Wrapper already handles context, but we respect flags)
         if (isDebugMode) {
             console.log(yamlLines.join('\n'));

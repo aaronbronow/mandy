@@ -39,19 +39,23 @@ test-tokens:
 
 test-tui-select: mandy-ui
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
+	if [ -z "$$PAYLOAD_PATH" ] || [ ! -f "$$PAYLOAD_PATH" ]; then echo "Error: Failed to generate payload" ; exit 1 ; fi ; \
 	rm -f /tmp/mandy_buffer ; \
-	MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
+	MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts 2>&1 ; \
 	if [ -f /tmp/mandy_buffer ]; then \
 		echo "TUI Select Test Passed: $$(cat /tmp/mandy_buffer)" ; \
 		rm /tmp/mandy_buffer ; \
 	else \
-		echo "TUI Select Test Failed: No buffer created" ; exit 1 ; \
+		echo "TUI Select Test Failed: No buffer created" ; \
+		echo "Payload content:" ; cat $$PAYLOAD_PATH ; \
+		exit 1 ; \
 	fi
 
 test-tui-quit: mandy-ui
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
+	if [ -z "$$PAYLOAD_PATH" ] || [ ! -f "$$PAYLOAD_PATH" ]; then echo "Error: Failed to generate payload" ; exit 1 ; fi ; \
 	rm -f /tmp/mandy_buffer ; \
-	MANDY_TEST_KEYS="q" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
+	MANDY_TEST_KEYS="q" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts 2>&1 ; \
 	if [ -f /tmp/mandy_buffer ]; then \
 		echo "TUI Quit Test Failed: Buffer was created" ; rm /tmp/mandy_buffer ; exit 1 ; \
 	else \
@@ -60,14 +64,16 @@ test-tui-quit: mandy-ui
 
 test-tui-search: mandy-ui
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
+	if [ -z "$$PAYLOAD_PATH" ] || [ ! -f "$$PAYLOAD_PATH" ]; then echo "Error: Failed to generate payload" ; exit 1 ; fi ; \
 	rm -f /tmp/mandy_buffer ; \
-	MANDY_TEST_KEYS="/,-,-,a,l,l,ENTER,ENTER,ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
+	MANDY_TEST_KEYS="/,-,-,a,l,l,ENTER,ENTER,ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts 2>&1 ; \
 	if [ -f /tmp/mandy_buffer ] && grep -q "\--all" /tmp/mandy_buffer; then \
 		echo "TUI Search Test Passed: $$(cat /tmp/mandy_buffer)" ; \
 		rm /tmp/mandy_buffer ; \
 	else \
 		echo "TUI Search Test Failed: Expected --all in buffer" ; \
 		[ -f /tmp/mandy_buffer ] && echo "Found: $$(cat /tmp/mandy_buffer)" ; \
+		echo "Payload content:" ; cat $$PAYLOAD_PATH ; \
 		exit 1 ; \
 	fi
 
