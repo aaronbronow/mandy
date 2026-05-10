@@ -3,9 +3,14 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag to release (e.g. v0.1.0). If empty, uses the pushed tag.'
+        required: false
+        default: ''
 
 jobs:
-  build-and-release:
+  build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -52,9 +57,42 @@ jobs:
           cp mandy mandy-ui dist/bin/
           tar -czvf mandy-v0.1.0-${{ matrix.platform }}.tar.gz -C dist .
 
-      - name: Upload to Release
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandy-v0.1.0-${{ matrix.platform }}
+          path: mandy-v0.1.0-${{ matrix.platform }}.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Determine Tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            echo "name=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=v0.1.0-manual-$(date +%Y%m%d%H%M)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: mandy-v0.1.0-${{ matrix.platform }}.tar.gz
+          tag_name: ${{ steps.tag.outputs.name }}
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
