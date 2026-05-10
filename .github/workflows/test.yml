@@ -28,10 +28,7 @@ jobs:
         uses: oven-sh/setup-bun@v1
 
       - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc rlwrap man-db manpages
-          sudo mandb
+        run: sudo apt-get install -y --no-install-recommends pandoc
 
       - name: Install YAMLScript
         run: curl -sSL https://yamlscript.org/install | sudo bash
