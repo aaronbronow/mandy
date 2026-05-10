@@ -43,8 +43,9 @@ By separating the **Parser (Clojure)** from the **UI (Bun)**, Mandy serves both 
 ---
 
 ## 🌊 Future Roadmap
-- [ ] **Cross-Platform Release Automation**: GitHub Actions to package multi-arch binaries (`.tar.gz`) on every tag.
-- [ ] **Plugin System**: Allow custom YAMLScript logic for specialized command parsers.
+- [x] **Cross-Platform Release Automation**: GitHub Actions to package multi-arch binaries (`.tar.gz`) on every tag or manual trigger.
+- [x] **Future-Proof CI**: Opt-in to Node.js 24 for all internal GitHub Actions.
+- [ ] **Plugin System**: Allow custom YAMLScript logic for specialized command parsers (Engine embedded, currently using Clojure stability path).
 
 ---
 

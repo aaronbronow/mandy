@@ -39,6 +39,13 @@
 - **Universal Token Extraction**: Removing positional restrictions (like `startsWith('-')`) on token extraction allows flags to be identified and interactive anywhere in a document, including within prose and explanatory notes.
 - **Word Boundary Regex**: Enforcing `\b` word boundaries in substring searches is critical for reducing false positives (e.g., preventing a search for "log" from matching "logical").
 
+## CI/CD & Release Management (Beta 0.1)
+- **Two-Stage Pipelines**: Separating "build" and "release" into distinct jobs in GitHub Actions prevents partial release failures. Consolidate binaries as artifacts first, then create a single release with all consolidated assets.
+- **Node.js 24 Transition**: Proactively setting `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` ensures internal GitHub Actions are compatible with upcoming runtime deprecations (Node 20).
+- **Non-Interactive Compatibility**: Always use `clojure` instead of `clj` in CI scripts to avoid the `rlwrap` dependency requirement.
+- **TTY Detection Bypass**: When running TUI logic in CI for automated tests, bypass `process.stdout.isTTY` checks if test-simulation keys (e.g., `MANDY_TEST_KEYS`) are present. This allows the logic to execute even when output is captured by the runner.
+- **GraalVM Experimental Options**: Some native-image flags (like `-H:IncludeResources`) now require `-H:+UnlockExperimentalVMOptions` to silence build-time warnings and ensure future compatibility.
+
 ## Search & Navigation (Beta 0.1)
 - **Segment-based Rendering**: When rendering lines with multiple overlapping "features" (e.g., a search match inside an interactive token), calculating boundaries and fragmenting the line into discrete segments is the only way to reliably apply priority. We used a `Set` of boundaries, sorted them, and then styled each fragment based on the highest priority feature (SEARCH > TOKEN).
 - **Live Snap Logic**: Providing a "Live Snap" (immediately updating the active token as you cycle search matches) creates a much more responsive feel than waiting for a confirmation key. 
