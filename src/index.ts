@@ -127,7 +127,7 @@ async function main() {
         }
 
         // Auto-Detect Mode (If stdout is piped, just print tokens)
-        if (!process.stdout.isTTY) {
+        if (!process.stdout.isTTY && !process.env.MANDY_TEST_KEYS) {
             console.log(JSON.stringify(Array.from(new Set(uniqueTokens.map(t => t.text))), null, 2));
             process.exit(0);
         }
