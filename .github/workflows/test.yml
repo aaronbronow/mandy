@@ -38,10 +38,25 @@ jobs:
           which clojure
           which ys
           which pandoc
+          which col
           ys --version
+          man ls | col -b | head -n 5
 
       - name: Install dependencies
         run: bun install
 
-      - name: Run Tests
-        run: make test
+      - name: Run Core Tests
+        env:
+          MANDY_ROOT: ${{ github.workspace }}
+        run: |
+          make test-debug
+          make test-sanitized
+          make test-tokens
+
+      - name: Run TUI Automated Tests
+        env:
+          MANDY_ROOT: ${{ github.workspace }}
+        run: |
+          make test-tui-select
+          make test-tui-quit
+          make test-tui-search

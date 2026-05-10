@@ -133,7 +133,7 @@
                     (System/exit 1)))
         
         ;; Use the embedded YAMLScript engine for parsing
-        mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
+        mandy-root (or (System/getenv "MANDY_ROOT") ".")
         base-plugin-res (io/resource "base.ys")
         base-plugin-file (io/file mandy-root "plugins/base.ys")
         structured-data (try
@@ -179,7 +179,7 @@
             mandy-ui-bin (io/file jar-path "mandy-ui")
             tui-cmd (if (.exists mandy-ui-bin)
                       [(.getAbsolutePath mandy-ui-bin)]
-                      ["bun" "run" (str (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy") "/src/index.ts")])
+                      ["bun" "run" (str (or (System/getenv "MANDY_ROOT") ".") "/src/index.ts")])
             pb (ProcessBuilder. (into tui-cmd args))
             env (.environment pb)
             _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
@@ -263,7 +263,7 @@
           (let [man-cmd (str "man " command " | col -b")
                 man-raw (:out (sh "bash" "-c" man-cmd))
                 
-                mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
+                mandy-root (or (System/getenv "MANDY_ROOT") ".")
                 base-plugin-res (io/resource "base.ys")
                 base-plugin-file (io/file mandy-root "plugins/base.ys")
                 structured-data (try
