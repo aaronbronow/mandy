@@ -3,6 +3,7 @@ dist
 target
 .cpcache
 /mandy
+/bin
 *.jar
 .zcompdump*
 src/*.js
