@@ -1,13 +1,16 @@
-# 🌿 Mandy (Manual Discovery) Alpha 0.3
+# 🌿 Mandy (Manual Discovery) Beta 0.1
 
-Mandy is a manual discovery tool that turns crusty man pages into structured, interactive command injectors. It uses a **Polyglot Wrapper Architecture**: a high-performance **Clojure** native binary handles the heavy parsing and source-mapping, while a **Node.js/TypeScript** TUI provides the interactive experience.
+Mandy is a manual discovery tool that turns crusty man pages into structured, interactive command injectors. It uses a **Polyglot Wrapper Architecture**: a high-performance **Clojure** native binary handles the heavy parsing and source-mapping, while a **Bun/TypeScript** TUI provides the interactive experience.
 
 ## 🚀 Installation
 
-Mandy is split into a **Native Parser** and a **Node.js TUI**.
+Mandy is split into a **Native Parser** and a **Bun-compiled TUI**.
 
 ### 1. Requirements
-- **Node.js**: Required to run the TUI.
+- **Bun**: Required to run and build the TUI.
+  ```bash
+  curl -fsSL https://bun.sh/install | bash
+  ```
 - **YAMLScript**: Required for high-level data processing.
   ```bash
   curl -sSL https://yamlscript.org/install | bash
@@ -16,34 +19,22 @@ Mandy is split into a **Native Parser** and a **Node.js TUI**.
 ### 2. Get Mandy
 
 #### Option A: End Users (No JDK/Clojure required)
-1. **Download the Binary**: Download the `mandy` native binary for your platform from the [Releases](https://github.com/aaronbronow/mandy/releases) page.
-2. **Move to Path**: Place the binary in your `$PATH` (e.g., `/usr/local/bin/mandy`).
-3. **Install TUI**:
-   ```bash
-   git clone https://github.com/aaronbronow/mandy.git
-   cd mandy
-   npm install
-   npm run build
-   ```
+1. **Download the Binary**: Download the `mandy` (Clojure) and `mandy-ui` (Bun) native binaries for your platform from the [Releases](https://github.com/aaronbronow/mandy/releases) page.
+2. **Move to Path**: Place the binaries in your `$PATH` (e.g., `/usr/local/bin/`).
 
 #### Option B: Developers (Requires Clojure/JDK)
-If you want to build the native binary from source:
+If you want to build from source:
 ```bash
 git clone https://github.com/aaronbronow/mandy.git
 cd mandy
-npm install
+bun install
+make build-ts
 make native
-```
-
-### 3. Global Link
-To make the TUI accessible to the binary:
-```bash
-sudo npm link
 ```
 
 ## 🛠 Project Structure
 - **`src/clj/mandy/main.clj`**: The Native Parser (Clojure). Handles man page fetching, regex-based structure parsing, and source mapping.
-- **`src/index.ts`**: The "Thin" TUI (TypeScript). Consumes pre-parsed data from the Clojure wrapper via `stdin`.
+- **`src/index.ts`**: The "Thin" TUI (TypeScript). Consumes pre-parsed data from the Clojure wrapper via temporary files.
 - **`Makefile`**: Orchestrates the multi-language build and test pipeline.
 - **`.mandyrc`**: The shell bridge for prompt injection.
 
@@ -64,39 +55,20 @@ Mandy supports two interface modes:
 ## 🖥 Unified Interactive View
 Mandy provides two perspectives on the manual, both fully interactive:
 - **Man View (Default)**: The familiar, formatted manual.
-- **YAML View (`Y`)**: A structured YAMLScript document.
+- **YAML View (`V`)**: A structured YAMLScript document.
 *Both views share the same Command Builder state—tab through tokens and hit Enter to build your command from either perspective.*
 
 ## 🔄 Development Loop
 1. **Edit** Clojure logic in `src/clj/` or TUI logic in `src/index.ts`.
 2. **Test**: `make test` or `make test-tokens`.
-3. **Build**: `make native` and `npm run build`.
+3. **Build**: `make native` and `make build-ts`.
 
-## 🛠 Advanced Development
-Mandy provides specialized tools in the `Makefile` for debugging the handshake and parsing:
-- **Inspect Payload**: Run the parser and view the raw JSON state passed to the TUI.
-  ```bash
-  make debug-payload CMD=tar
-  ```
-- **Isolated TUI Test**: Run the Node.js TUI using the last generated payload (bypasses the Clojure wrapper).
-  ```bash
-  make run-tui
-  ```
-
-## 🤖 AI Agent Integration
-Mandy is instant for agents and scripts. In non-interactive contexts (e.g., pipes or redirects):
-- **Default (High Fidelity)**: Mandy outputs a full YAML document (Model B) preserving all formatting.
-  ```bash
-  mandy ls | cat
-  ```
-- **Sanitized**: Use the `--strip` or `-s` flag to receive a condensed version with whitespace normalized and empty lines removed.
-  ```bash
-  mandy ls -s | cat
-  ```
-- **JSON**: Pipe the output to `ys` to get a machine-readable JSON representation.
-  ```bash
-  mandy ls | ys -J -
-  ```
+## 🤖 Automated TUI Testing
+Mandy supports "Headless Playback" for automated functional testing. Set the `MANDY_TEST_KEYS` environment variable to a comma-separated list of key names to simulate user input:
+```bash
+# Select the first token and exit automatically
+MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=payload.json bun run src/index.ts
+```
 
 ## 🧠 Dev Notes
 Check out `GEMINI.md` for technical learnings and `PLAN.md` for the roadmap.
