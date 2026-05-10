@@ -57,8 +57,8 @@
 - **Dynamic CLI/TUI Routing**: Implementing separate flags for CLI (`-k`) and TUI (`-K`) search while sharing the underlying search logic provides a flexible interface that caters to both scripted and interactive use cases.
 
 ## Deployment & Portability (Beta 0.1)
-- **Embedded YAMLScript**: Using `clj-yamlscript` allows us to bake the YS engine directly into the Clojure binary. This fulfills the "zero dependencies" goal by eliminating the need for a system-level `libys` or the `ys` binary, while still allowing us to move messy parsing logic into flexible YS scripts (`plugins/base.ys`).
-- **Hybrid Distribution**: For polyglot tools, a hybrid distribution model works best for Beta releases. We distribute the Clojure component as a portable Uberjar (requiring only a JRE) and the TypeScript TUI as a zero-dependency Bun-compiled binary.
-- **Dynamic Binary Discovery**: Hardcoding paths breaks portability. The parser now dynamically locates the TUI binary by checking its own installation directory (via the Java classpath), allowing the components to move together as a single package.
-- **Cross-Compilation with Bun**: Bun's native support for `--target` allows us to build binaries for Linux and macOS (x64/arm64) from a single development machine, simplifying the release pipeline significantly.
-- **One-liner Installers**: Providing a shell script that auto-detects architecture and downloads the correct tarball is the industry standard for CLI tools, providing a friction-free "Quick Start" for users.
+- **GraalVM Native Image**: Compiling Clojure to native binaries via SubstrateVM provides sub-10ms startup times and removes the requirement for a Java Runtime (JRE) on the user's system.
+- **Embedded YAMLScript & Resources**: Using `clj-yamlscript` and GraalVM's `-H:IncludeResources` flag allows us to bake the YS engine and specific `.ys` plugins directly into the machine-code binary. This achieves a "Zero-Dependency" core that is still logic-extensible via embedded scripts.
+- **Dynamic Binary Discovery**: Portability is maintained by dynamically locating the TUI binary (`mandy-ui`) relative to the location of the parser (`mandy`) using the Java classpath/system properties, ensuring they can move together as a single package.
+- **Cross-Platform CI Build Matrix**: Bun's native support for `--target` combined with a GitHub Action matrix allows for the automated generation of multi-arch binaries (Linux x64, macOS x64/arm64) from a single push, serving as a reliable "Binary Factory".
+- **Installer Platform Mapping**: When writing installers, mapping `uname -s` (e.g., `Darwin`) to release platform names (e.g., `darwin-arm64`) is critical for ensuring one-liner `curl | sh` scripts work seamlessly across ecosystems.

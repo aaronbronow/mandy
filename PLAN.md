@@ -31,7 +31,8 @@ Migrate the TUI to Bun, implement the "Search" Stage 1-3 selection logic, and se
 
 ## 5. Deployment Prototype
 - [x] Update `Makefile` to trigger:
-    - `mandy-cli` (Portable Uberjar + Shell Wrapper)
+    - `mandy-cli` (Zero-Java GraalVM Native Image)
     - `mandy-ui` (bun build --compile for multiple targets)
 - [x] Create `release-all` target for cross-platform distribution.
+- [x] Implement `.github/workflows/release.yml` for multi-arch CI automation.
 - [x] Draft `scripts/install.sh` for binary distribution.
