@@ -1,20 +1,9 @@
-!ys-0
+!yamlscript/v0
 
-defn heading?(line):
-  re-matches(qr"[A-Z][A-Z0-9()\s]*[A-Z0-9)]", trim(line))
+# Standard Manual Parser Plugin
+# Currently, core logic resides in Clojure for Beta 0.1 stability.
+# This file is ready for Beta 0.2 enhancements.
 
-defn parse-man(raw-text):
-  let lines: split-lines(raw-text)
-      indexed-lines: map-indexed(vector, lines):
-    reduce(fn [acc [idx line]]:
-      if heading?(line):
-        conj(acc, {(trim line): []})
-        let [last-idx: dec(count(acc))
-             heading: first(keys(nth(acc, last-idx)))
-             lm: {:originalIndex idx, :text line}]:
-          update-in(acc, [last-idx, heading], conj, lm))
-      [{"PREFACE": []}]
-      indexed-lines)
-
-# Main entry point for the plugin
-parse-man(input-text)
+defn parse-man(input-text):
+  say: "YAMLScript Plugin Loaded"
+  return: []

@@ -46,16 +46,12 @@ jobs:
         run: bun install
 
       - name: Run Core Tests
-        env:
-          MANDY_ROOT: ${{ github.workspace }}
         run: |
           make test-debug
           make test-sanitized
           make test-tokens
 
       - name: Run TUI Automated Tests
-        env:
-          MANDY_ROOT: ${{ github.workspace }}
         run: |
           make test-tui-select
           make test-tui-quit

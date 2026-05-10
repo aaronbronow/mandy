@@ -3,8 +3,7 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.java.shell :refer [sh]]
-            [yamlscript.core :as ys])
+            [clojure.java.shell :refer [sh]])
   (:import [java.lang ProcessBuilder]
            [java.lang ProcessBuilder$Redirect])
   (:gen-class))
@@ -132,19 +131,9 @@
                     (binding [*out* *err*] (println "Error: Command or file not found"))
                     (System/exit 1)))
         
-        ;; Use the embedded YAMLScript engine for parsing
-        mandy-root (or (System/getenv "MANDY_ROOT") ".")
-        base-plugin-res (io/resource "base.ys")
-        base-plugin-file (io/file mandy-root "plugins/base.ys")
-        structured-data (try
-                          (let [plugin-content (if base-plugin-res
-                                                 (slurp base-plugin-res)
-                                                 (slurp base-plugin-file))]
-                            (ys/load plugin-content {"input-text" man-raw}))
-                          (catch Exception e
-                            (binding [*out* *err*] (println "Error: YAMLScript parsing failed:" (.getMessage e)))
-                            ;; Fallback to internal Clojure logic if YS fails
-                            (parse-man (map-indexed vector (str/split-lines man-raw)))))
+        lines (str/split-lines man-raw)
+        indexed-lines (map-indexed vector lines)
+        structured-data (parse-man indexed-lines)
         
         raw-yaml (generate-yaml structured-data false)
         sanitized-yaml (generate-yaml structured-data true)]
@@ -177,9 +166,10 @@
                          (str/split (re-pattern (System/getProperty "path.separator"))) 
                          first io/file .getAbsoluteFile .getParent)
             mandy-ui-bin (io/file jar-path "mandy-ui")
+            mandy-root (or (System/getenv "MANDY_ROOT") (System/getProperty "user.dir"))
             tui-cmd (if (.exists mandy-ui-bin)
                       [(.getAbsolutePath mandy-ui-bin)]
-                      ["bun" "run" (str (or (System/getenv "MANDY_ROOT") ".") "/src/index.ts")])
+                      ["bun" "run" (str mandy-root "/src/index.ts")])
             pb (ProcessBuilder. (into tui-cmd args))
             env (.environment pb)
             _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
@@ -262,19 +252,9 @@
           ;; Context-based discovery mode
           (let [man-cmd (str "man " command " | col -b")
                 man-raw (:out (sh "bash" "-c" man-cmd))
-                
-                mandy-root (or (System/getenv "MANDY_ROOT") ".")
-                base-plugin-res (io/resource "base.ys")
-                base-plugin-file (io/file mandy-root "plugins/base.ys")
-                structured-data (try
-                                  (let [plugin-content (if base-plugin-res
-                                                         (slurp base-plugin-res)
-                                                         (slurp base-plugin-file))]
-                                    (ys/load plugin-content {"input-text" man-raw}))
-                                  (catch Exception e
-                                    (parse-man (map-indexed vector (str/split-lines man-raw)))))
-                
                 lines (str/split-lines man-raw)
+                indexed-lines (map-indexed vector lines)
+                structured-data (parse-man indexed-lines)
                 results (if context-string
                           (find-variants command structured-data context-string lines after-n)
                           [{:variant command :context (if after-n (take after-n lines) [])}])]
