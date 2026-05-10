@@ -2,7 +2,7 @@
 # Source this file to enable the 'mandy' command
 
 mandy() {
-  local mandy_root="/home/aaron/dev/mandy"
+  export MANDY_ROOT="/home/aaron/dev/mandy"
   # Clear any stale buffer from previous runs
   rm -f /tmp/mandy_buffer
   # Use the Clojure entry point which handles parsing and handoff to Node.js

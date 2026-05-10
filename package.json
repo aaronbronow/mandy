@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/index.ts",
   "bin": {
-    "mandy": "bin/mandy-ui"
+    "mandy-ui": "bin/mandy-ui"
   },
   "scripts": {
     "build": "bun build --compile ./src/index.ts --outfile ./bin/mandy-ui",

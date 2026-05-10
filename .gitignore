@@ -2,7 +2,7 @@ node_modules
 dist
 target
 .cpcache
-mandy/
+/mandy
 *.jar
 .zcompdump*
 src/*.js
