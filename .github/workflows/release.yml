@@ -36,7 +36,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@12.5
+        uses: DeLaGuardo/setup-clojure@v13
         with: { cli: 1.12.4.1618 }
 
       - name: Build Mandy Native Binary
@@ -44,7 +44,7 @@ jobs:
 
       # --- BUN / TYPESCRIPT SECTION ---
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
 
       - name: Build mandy-ui (Native)
         run: |

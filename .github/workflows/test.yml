@@ -21,11 +21,11 @@ jobs:
           distribution: 'temurin'
 
       - name: Install Clojure
-        uses: DeLaGuardo/setup-clojure@12.5
+        uses: DeLaGuardo/setup-clojure@v13
         with: { cli: 1.12.4.1618 }
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
 
       - name: Install System Dependencies
         run: sudo apt-get install -y --no-install-recommends pandoc
