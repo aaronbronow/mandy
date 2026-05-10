@@ -1,7 +1,7 @@
 # PLAN.md: Beta 0.1 Speedrun for Gemini-CLI
 
 ## Objective
-Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and set up the local file resolution.
+Migrate the TUI to Bun, implement the "Search" Stage 1-3 selection logic, and set up the local file resolution.
 
 ## 1. Environment Transition (Node -> Bun)
 - [x] Update `package.json` dependencies for Bun compatibility.
@@ -10,10 +10,10 @@ Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and se
 - [x] Scaffold `bun build --compile` script.
 - [x] Implement automated TUI testing via `MANDY_TEST_KEYS`.
 
-## 2. Sniper Selection Logic (TUI)
-- [ ] **Search Mode**: Implement `/` input buffer. On `change`, search Model A and `term.moveTo` the first match.
-- [ ] **Freeze Mode**: On `Enter`, store current `matchIndex`. Enable `n/p` to cycle `allMatches[]`.
-- [ ] **Magnetic Snap**: On `Enter` (again), use the Manhattan distance formula:
+## 2. Search Selection Logic (TUI)
+- [x] **Search Mode**: Implement `/` input buffer. On `change`, search Model A and `term.moveTo` the first match.
+- [x] **Freeze Mode**: On `Enter`, store current `matchIndex`. Enable `n/p` to cycle `allMatches[]`.
+- [x] **Magnetic Snap**: On `Enter` (again), use the Manhattan distance formula:
   `D = (match.y - token.y) * 100 + (match.x - token.x)`
   Snap focus to the token with the smallest positive `D` where `type` is `flag` or `arg`.
 

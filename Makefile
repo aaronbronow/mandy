@@ -1,6 +1,8 @@
-.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-sniper build
+.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search build
 
 all: mandy-cli mandy-ui
+
+mandy: mandy-cli
 
 build: mandy-cli mandy-ui
 
@@ -21,7 +23,7 @@ clean:
 	rm -f mandy
 	rm -rf dist bin
 
-test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-sniper
+test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search
 
 test-debug:
 	clj -M -m mandy.main pwd --debug
@@ -53,15 +55,15 @@ test-tui-quit: mandy-ui
 		echo "TUI Quit Test Passed" ; \
 	fi
 
-test-tui-sniper: mandy-ui
+test-tui-search: mandy-ui
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main ls) ; \
 	rm -f /tmp/mandy_buffer ; \
 	MANDY_TEST_KEYS="/,-,-,a,l,l,ENTER,ENTER,ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
 	if [ -f /tmp/mandy_buffer ] && grep -q "\--all" /tmp/mandy_buffer; then \
-		echo "TUI Sniper Test Passed: $$(cat /tmp/mandy_buffer)" ; \
+		echo "TUI Search Test Passed: $$(cat /tmp/mandy_buffer)" ; \
 		rm /tmp/mandy_buffer ; \
 	else \
-		echo "TUI Sniper Test Failed: Expected --all in buffer" ; \
+		echo "TUI Search Test Failed: Expected --all in buffer" ; \
 		[ -f /tmp/mandy_buffer ] && echo "Found: $$(cat /tmp/mandy_buffer)" ; \
 		exit 1 ; \
 	fi
