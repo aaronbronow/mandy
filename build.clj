@@ -30,5 +30,6 @@
                              "mandy"
                              "--no-fallback"
                              "--initialize-at-build-time"
+                             "-H:+UnlockExperimentalVMOptions"
                              "-H:IncludeResources=base.ys"
                              "-H:+ReportExceptionStackTraces"]}))
