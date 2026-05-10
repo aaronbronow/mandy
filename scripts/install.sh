@@ -21,14 +21,6 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}🌿 Installing Mandy (Manual Discovery)...${NC}"
 
 # --- Dependency Check ---
-echo -n "Checking for Java... "
-if command -v java >/dev/null 2>&1; then
-    echo -e "${GREEN}Found$(java -version 2>&1 | head -n 1 | awk -F '"' '{print " (" $2 ")"}')${NC}"
-else
-    echo -e "${RED}Not Found${NC}"
-    echo -e "  Note: Mandy requires Java to run the parser. Please install a JRE."
-fi
-
 echo -n "Checking for YAMLScript (ys)... "
 if command -v ys >/dev/null 2>&1; then
     echo -e "${GREEN}Found${NC}"
@@ -74,10 +66,10 @@ echo -e "Installing to ${GREEN}${BINARY_DIR}${NC}..."
 if [ ! -w "$BINARY_DIR" ]; then
     echo "Requesting sudo permissions to install to $BINARY_DIR"
     sudo mkdir -p "$BINARY_DIR"
-    sudo mv "$TEMP_DIR/bin/mandy" "$TEMP_DIR/bin/mandy-ui" "$TEMP_DIR/bin/mandy.jar" "$BINARY_DIR/"
+    sudo mv "$TEMP_DIR/bin/mandy" "$TEMP_DIR/bin/mandy-ui" "$BINARY_DIR/"
 else
     mkdir -p "$BINARY_DIR"
-    mv "$TEMP_DIR/bin/mandy" "$TEMP_DIR/bin/mandy-ui" "$TEMP_DIR/bin/mandy.jar" "$BINARY_DIR/"
+    mv "$TEMP_DIR/bin/mandy" "$TEMP_DIR/bin/mandy-ui" "$BINARY_DIR/"
 fi
 
 # --- Cleanup ---

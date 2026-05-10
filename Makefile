@@ -9,16 +9,10 @@ mandy: mandy-cli
 
 build: mandy-cli mandy-ui
 
-# 1. Clojure Component (Uberjar + Wrapper)
+# 1. Clojure Component (Native Image)
 mandy-cli:
-	clj -T:build uber
-	@echo '#!/usr/bin/env bash' > mandy
-	@echo 'INSTALL_DIR="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)"' >> mandy
-	@echo 'JAR_PATH="$$INSTALL_DIR/mandy.jar"' >> mandy
-	@echo 'if [ ! -f "$$JAR_PATH" ]; then JAR_PATH="$$INSTALL_DIR/target/$(JAR_NAME)"; fi' >> mandy
-	@echo 'java -jar "$$JAR_PATH" "$$@"' >> mandy
-	@chmod +x mandy
-	@echo "Created mandy wrapper (points to target/$(JAR_NAME))"
+	clj -T:build native
+	@echo "Created mandy native binary"
 
 # 2. TUI Component (Compiled Bun Binary)
 mandy-ui:

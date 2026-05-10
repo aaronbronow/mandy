@@ -21,3 +21,13 @@
            :uber-file uber-file
            :basis basis
            :main 'mandy.main}))
+
+(defn native [_]
+  (uber nil)
+  (println "Compiling native image...")
+  (b/process {:command-args ["native-image"
+                             "-jar" uber-file
+                             "mandy"
+                             "--no-fallback"
+                             "--initialize-at-build-time"
+                             "-H:+ReportExceptionStackTraces"]}))

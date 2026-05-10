@@ -13,7 +13,6 @@ curl -sSL https://raw.githubusercontent.com/aaronbronow/mandy/main/scripts/insta
 ```
 
 ### 2. Requirements
-- **Java (JRE 8+)**: Required to run the Clojure parser.
 - **Bun**: Required to build the TUI from source.
 - **YAMLScript**: Required for high-level data processing.
   ```bash
