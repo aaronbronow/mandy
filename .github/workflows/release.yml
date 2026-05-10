@@ -2,6 +2,7 @@ name: Release Mandy Binaries
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -33,7 +34,7 @@ jobs:
         with: { cli: 1.12.4.1618 }
 
       - name: Build Mandy Native Binary
-        run: clj -T:build native
+        run: clojure -T:build native
 
       # --- BUN / TYPESCRIPT SECTION ---
       - name: Setup Bun
