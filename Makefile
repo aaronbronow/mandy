@@ -1,16 +1,8 @@
-.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens build
+.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens test-tui-select test-tui-quit build
 
 all: mandy-cli mandy-ui
 
-mandy: mandy-cli
-
-build: mandy-ui
-
-mandy-ui:
-	npm run build
-
-shell: mandy-ui
-	ZDOTDIR=$$PWD zsh -is eval "source .mandyrc"
+build: mandy-cli mandy-ui
 
 mandy-cli:
 	@echo '#!/usr/bin/env bash' > mandy
@@ -18,12 +10,18 @@ mandy-cli:
 	@chmod +x mandy
 	@echo "Created mandy wrapper"
 
+mandy-ui:
+	npm run build
+
+shell: mandy-ui
+	ZDOTDIR=$$PWD zsh -is eval "source .mandyrc"
+
 clean:
 	clj -T:build clean
 	rm -f mandy
 	rm -rf dist bin
 
-test: test-debug test-sanitized
+test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit
 
 test-debug:
 	clj -M -m mandy.main pwd --debug
@@ -33,6 +31,27 @@ test-sanitized:
 
 test-tokens:
 	clj -M -m mandy.main ls --debug | ys -J -
+
+test-tui-select: mandy-ui
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main ls) ; \
+	rm -f /tmp/mandy_buffer ; \
+	MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
+	if [ -f /tmp/mandy_buffer ]; then \
+		echo "TUI Select Test Passed: $$(cat /tmp/mandy_buffer)" ; \
+		rm /tmp/mandy_buffer ; \
+	else \
+		echo "TUI Select Test Failed: No buffer created" ; exit 1 ; \
+	fi
+
+test-tui-quit: mandy-ui
+	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main ls) ; \
+	rm -f /tmp/mandy_buffer ; \
+	MANDY_TEST_KEYS="q" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts ; \
+	if [ -f /tmp/mandy_buffer ]; then \
+		echo "TUI Quit Test Failed: Buffer was created" ; rm /tmp/mandy_buffer ; exit 1 ; \
+	else \
+		echo "TUI Quit Test Passed" ; \
+	fi
 
 debug-tui: mandy-ui
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main $(or $(CMD),ls)) ; \
