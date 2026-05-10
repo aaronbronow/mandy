@@ -28,6 +28,6 @@ Migrate the TUI to Bun, implement the "Sniper" Stage 1-3 selection logic, and se
 
 ## 5. Deployment Prototype
 - [x] Update `Makefile` to trigger:
-    - `native` (Clojure via clj -T:build)
-    - `build-ts` (bun build --compile ./src/index.ts --outfile ./bin/mandy-ui)
+    - `mandy-cli` (Clojure wrapper)
+    - `mandy-ui` (bun build --compile ./src/index.ts --outfile ./bin/mandy-ui)
 - [ ] Draft `install.sh` for binary distribution.

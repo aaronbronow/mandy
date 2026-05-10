@@ -1,14 +1,22 @@
-.PHONY: clean uber native test test-debug test-sanitized test-tokens build-ts
+.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens build
 
-mandy: native
+all: mandy-cli mandy-ui
 
-build: build-ts
+mandy: mandy-cli
 
-build-ts:
+build: mandy-ui
+
+mandy-ui:
 	npm run build
 
-shell: build-ts
+shell: mandy-ui
 	ZDOTDIR=$$PWD zsh -is eval "source .mandyrc"
+
+mandy-cli:
+	@echo '#!/usr/bin/env bash' > mandy
+	@echo 'clj -M -m mandy.main "$$@"' >> mandy
+	@chmod +x mandy
+	@echo "Created mandy wrapper"
 
 clean:
 	clj -T:build clean
@@ -26,7 +34,7 @@ test-sanitized:
 test-tokens:
 	clj -M -m mandy.main ls --debug | ys -J -
 
-debug-tui: build-ts
+debug-tui: mandy-ui
 	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clj -M -m mandy.main $(or $(CMD),ls)) ; \
 	MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts $(or $(CMD),ls)
 
@@ -36,7 +44,7 @@ debug-payload:
 	cat $$PAYLOAD_PATH ; \
 	echo "\nPayload saved to: $$PAYLOAD_PATH"
 
-run-tui: build-ts
+run-tui: mandy-ui
 	@P_PATH=$$( [ -f .mandy_payload_path ] && cat .mandy_payload_path ) ; \
 	FINAL_PATH=$${FILE:-$${MANDY_PAYLOAD_PATH:-$$P_PATH}} ; \
 	if [ -z "$$FINAL_PATH" ] || [ ! -f "$$FINAL_PATH" ]; then \
@@ -50,7 +58,7 @@ OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH := $(shell uname -m)
 VERSION := 0.1.0
 
-dist: native build-ts
+dist: mandy-cli mandy-ui
 	mkdir -p dist-pkg/bin
 	cp mandy dist-pkg/bin/
 	cp bin/mandy-ui dist-pkg/bin/

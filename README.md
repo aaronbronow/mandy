@@ -28,8 +28,8 @@ If you want to build from source:
 git clone https://github.com/aaronbronow/mandy.git
 cd mandy
 bun install
-make build-ts
-make native
+make mandy-ui
+make mandy-cli
 ```
 
 ## 🛠 Project Structure
