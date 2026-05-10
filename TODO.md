@@ -11,6 +11,7 @@ By separating the **Parser (Clojure)** from the **UI (Bun)**, Mandy serves both 
 
 ## 🛠 Status: Beta 0.1 Complete
 - [x] **Polyglot Wrapper Architecture**: Clojure (Native GraalVM) for <10ms parsing; Bun-compiled TUI.
+- [x] **Zero-Dependency Core**: Embedded YAMLScript engine via `clj-yamlscript`; no system `libys` required.
 - [x] **Environment Migration**: Fully transitioned from Node.js to Bun for both development and distribution.
 - [x] **Local & Markdown Support**: Support for `man -l` and `pandoc` bridge for `.md` files.
 - [x] **Search Selection Logic**:

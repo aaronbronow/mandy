@@ -3,7 +3,8 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.java.shell :refer [sh]])
+            [clojure.java.shell :refer [sh]]
+            [yamlscript.core :as ys])
   (:import [java.lang ProcessBuilder]
            [java.lang ProcessBuilder$Redirect])
   (:gen-class))
@@ -130,9 +131,17 @@
                   (catch Exception e 
                     (binding [*out* *err*] (println "Error: Command or file not found"))
                     (System/exit 1)))
-        lines (str/split-lines man-raw)
-        indexed-lines (map-indexed vector lines)
-        structured-data (parse-man indexed-lines)
+        
+        ;; Use the embedded YAMLScript engine for parsing
+        mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
+        base-plugin (str mandy-root "/plugins/base.ys")
+        structured-data (try
+                          (ys/load (slurp base-plugin) {"input-text" man-raw})
+                          (catch Exception e
+                            (binding [*out* *err*] (println "Error: YAMLScript parsing failed:" (.getMessage e)))
+                            ;; Fallback to internal Clojure logic if YS fails
+                            (parse-man (map-indexed vector (str/split-lines man-raw)))))
+        
         raw-yaml (generate-yaml structured-data false)
         sanitized-yaml (generate-yaml structured-data true)]
 
@@ -249,9 +258,15 @@
           ;; Context-based discovery mode
           (let [man-cmd (str "man " command " | col -b")
                 man-raw (:out (sh "bash" "-c" man-cmd))
+                
+                mandy-root (or (System/getenv "MANDY_ROOT") "/home/aaron/dev/mandy")
+                base-plugin (str mandy-root "/plugins/base.ys")
+                structured-data (try
+                                  (ys/load (slurp base-plugin) {"input-text" man-raw})
+                                  (catch Exception e
+                                    (parse-man (map-indexed vector (str/split-lines man-raw)))))
+                
                 lines (str/split-lines man-raw)
-                indexed-lines (map-indexed vector lines)
-                structured-data (parse-man indexed-lines)
                 results (if context-string
                           (find-variants command structured-data context-string lines after-n)
                           [{:variant command :context (if after-n (take after-n lines) [])}])]

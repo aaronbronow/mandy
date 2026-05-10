@@ -57,6 +57,7 @@
 - **Dynamic CLI/TUI Routing**: Implementing separate flags for CLI (`-k`) and TUI (`-K`) search while sharing the underlying search logic provides a flexible interface that caters to both scripted and interactive use cases.
 
 ## Deployment & Portability (Beta 0.1)
+- **Embedded YAMLScript**: Using `clj-yamlscript` allows us to bake the YS engine directly into the Clojure binary. This fulfills the "zero dependencies" goal by eliminating the need for a system-level `libys` or the `ys` binary, while still allowing us to move messy parsing logic into flexible YS scripts (`plugins/base.ys`).
 - **Hybrid Distribution**: For polyglot tools, a hybrid distribution model works best for Beta releases. We distribute the Clojure component as a portable Uberjar (requiring only a JRE) and the TypeScript TUI as a zero-dependency Bun-compiled binary.
 - **Dynamic Binary Discovery**: Hardcoding paths breaks portability. The parser now dynamically locates the TUI binary by checking its own installation directory (via the Java classpath), allowing the components to move together as a single package.
 - **Cross-Compilation with Bun**: Bun's native support for `--target` allows us to build binaries for Linux and macOS (x64/arm64) from a single development machine, simplifying the release pipeline significantly.
