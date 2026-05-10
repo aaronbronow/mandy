@@ -17,10 +17,7 @@ Mandy is split into a **Native Parser** and a **Bun-compiled TUI**.
   ```
 
 ### 2. Get Mandy
-
-#### Option A: End Users (No JDK/Clojure required)
-1. **Download the Binary**: Download the `mandy` (Clojure) and `mandy-ui` (Bun) native binaries for your platform from the [Releases](https://github.com/aaronbronow/mandy/releases) page.
-2. **Move to Path**: Place the binaries in your `$PATH` (e.g., `/usr/local/bin/`).
+... (No changes needed to Options A/B) ...
 
 #### Option B: Developers (Requires Clojure/JDK)
 If you want to build from source:
@@ -41,22 +38,33 @@ make mandy-cli
 ## 🧪 Try It Out
 Run mandy on any command:
 ```bash
-mandy tar
 mandy ls
 ```
 
-## ⌨️ Modes
-Mandy supports two interface modes:
-- **Default (Nano-style)**: Familiar shortcuts like `^X` to exit.
-- **VIM Mode**: VIM status line and keybindings (`j`, `k`, `g`, `G`, `q`, etc.).
-    - Enable via flag: `mandy --vim <cmd>`
-    - Enable via env var: `export MANDY_VIM=1`
+## ⌨️ Modes & Shortcuts
+Mandy supports fluid navigation across its interactive views:
 
-## 🖥 Unified Interactive View
-Mandy provides two perspectives on the manual, both fully interactive:
-- **Man View (Default)**: The familiar, formatted manual.
-- **YAML View (`V`)**: A structured YAMLScript document.
-*Both views share the same Command Builder state—tab through tokens and hit Enter to build your command from either perspective.*
+### Navigation
+- **`UP` / `DOWN` / `j` / `k`**: Scroll line by line.
+- **`PAGE_UP` / `PAGE_DOWN` / `CTRL_U` / `CTRL_D` / `SPACE`**: Scroll half-pages.
+- **`g` / `G`**: Jump to top / bottom.
+- **`TAB` / `SHIFT_TAB` / `n` / `p`**: Cycle focus through interactive tokens (flags/args).
+
+### Search Mode (`/`)
+- **Activate**: Press `/` from the text area.
+- **Search**: Type to find any text. View centers on the first match.
+- **Freeze**: Press `ENTER` to lock search results.
+- **Cycle**: Use `n` / `p` to cycle through matches. The token cursor will **Live Snap** to the nearest candidate flag.
+- **Select**: Press `ENTER` while frozen to add the snapped token and exit search.
+- **Cancel**: Press `ESC` to clear search and return to normal mode.
+
+### Command Building
+- **`ENTER`**: Add focused token to the command builder.
+- **`BACKSPACE` / `DELETE`**: Remove the last added token.
+- **`CTRL_O` / `:`**: Jump focus to the Command Bar to finalize.
+- **`ENTER` (on Command Bar)**: Terminate and inject command into your shell.
+- **`V`**: Toggle between **Man View** and **YAML View**.
+- **`Q`**: Quit Mandy without injecting a command.
 
 ## 🔄 Development Loop
 1. **Edit** Clojure logic in `src/clj/` or TUI logic in `src/index.ts`.
@@ -72,6 +80,7 @@ MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=payload.json bun run src/index.
 # Or run the integrated tests
 make test-tui-select
 make test-tui-quit
+make test-tui-search
 ```
 
 ## 🧠 Dev Notes

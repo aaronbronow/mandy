@@ -182,9 +182,7 @@ async function main() {
                 const line = currentLines[lineIdx]!;
                 term.eraseLine();
 
-                let lastCol = 0;
-                
-                // Combine tokens and search matches for rendering
+                // 1. Identify all features (tokens and search matches) on this line
                 const lineTokens = uniqueTokens.filter(t => (viewMode === ViewMode.MAN ? t.line : t.yamlLine) === lineIdx);
                 const lineMatches = searchMatches.filter(m => m.line === lineIdx);
 
@@ -197,41 +195,68 @@ async function main() {
                     features.push({ start: m.col, end: m.col + searchBuffer.length, type: 'SEARCH', index: searchMatches.indexOf(m) });
                 }
 
-                features.sort((a, b) => a.start - b.start || (b.end - a.end));
-
+                // 2. Fragment the line into segments based on feature boundaries
+                const boundaries = new Set<number>([0, line.length]);
                 for (const f of features) {
-                    if (f.start < lastCol) continue;
-                    term(line.substring(lastCol, f.start));
-                    
-                    const text = line.substring(f.start, f.end);
-                    if (f.type === 'TOKEN') {
-                        const isPrimary = f.index === activeIndex && focusArea === FocusArea.TEXT_AREA;
-                        if (isPrimary) term.bgGreen.black(text);
-                        else term.bgBlue.white(text);
-                    } else {
-                        const isCurrent = f.index === searchMatchIndex && (focusArea === FocusArea.SEARCH_BAR || isFreezeMode);
-                        if (isCurrent) term.bgYellow.black(text);
-                        else term.bgWhite.black(text);
-                    }
-                    lastCol = f.end;
+                    boundaries.add(f.start);
+                    boundaries.add(f.end);
                 }
+                const sortedBoundaries = Array.from(boundaries).sort((a, b) => a - b);
 
-                // If no features, apply default styling (YAML colorization etc.)
-                if (features.length === 0) {
-                    if (viewMode === ViewMode.YAML) {
-                        const trimmed = line.trim();
-                        if (trimmed.startsWith('!yamlscript')) term.magenta(line.substring(0, width));
-                        else if (trimmed.startsWith('- ')) term.cyan('- ').white(line.substring(line.indexOf('- ') + 2, width));
-                        else if (line.includes(':')) {
-                            const colonIdx = line.indexOf(':');
-                            term.green(line.substring(0, colonIdx + 1)).white(line.substring(colonIdx + 1, width));
-                        } else term.white(line.substring(0, width));
+                // 3. Render each segment with the highest priority feature
+                for (let i = 0; i < sortedBoundaries.length - 1; i++) {
+                    const start = sortedBoundaries[i];
+                    const end = sortedBoundaries[i+1];
+                    const text = line.substring(start, end);
+                    if (text === "") continue;
+
+                    // Find all features that cover this segment
+                    const segmentFeatures = features.filter(f => f.start <= start && f.end >= end);
+                    
+                    // Priority: SEARCH (current > others) > TOKEN (current > others)
+                    const topFeature = segmentFeatures.sort((a, b) => {
+                        if (a.type !== b.type) return a.type === 'SEARCH' ? -1 : 1;
+                        if (a.type === 'SEARCH') {
+                            const aIsCurrent = a.index === searchMatchIndex;
+                            const bIsCurrent = b.index === searchMatchIndex;
+                            if (aIsCurrent !== bIsCurrent) return aIsCurrent ? -1 : 1;
+                        } else {
+                            const aIsActive = a.index === activeIndex;
+                            const bIsActive = b.index === activeIndex;
+                            if (aIsActive !== bIsActive) return aIsActive ? -1 : 1;
+                        }
+                        return 0;
+                    })[0];
+
+                    if (topFeature) {
+                        if (topFeature.type === 'TOKEN') {
+                            const isPrimary = topFeature.index === activeIndex && focusArea === FocusArea.TEXT_AREA;
+                            if (isPrimary) term.bgGreen.black(text);
+                            else term.bgBlue.white(text);
+                        } else {
+                            const isCurrent = topFeature.index === searchMatchIndex && (focusArea === FocusArea.SEARCH_BAR || isFreezeMode);
+                            if (isCurrent) term.bgYellow.black(text);
+                            else term.bgWhite.black(text);
+                        }
                     } else {
-                        term.white(line.substring(0, width));
+                        // Apply default styling (YAML colorization etc.)
+                        if (viewMode === ViewMode.YAML) {
+                            const trimmed = line.trim();
+                            if (trimmed.startsWith('!yamlscript')) term.magenta(text);
+                            else if (trimmed.startsWith('- ')) {
+                                if (start < line.indexOf('- ') + 2) term.cyan(text);
+                                else term.white(text);
+                            } else if (line.includes(':') && start <= line.indexOf(':')) {
+                                term.green(text);
+                            } else term.white(text);
+                        } else {
+                            term.white(text);
+                        }
                     }
-                } else {
-                    term.white(line.substring(lastCol, width));
                 }
+                
+                // Ensure the rest of the line is erased if needed (though term.eraseLine was called)
+                term.white(""); 
             }
 
             const statusLineY = term.height - 2;
@@ -289,22 +314,69 @@ async function main() {
             render();
         };
 
+        const updateActiveTokenFromMatch = () => {
+            if (searchMatches.length === 0) return;
+            const match = searchMatches[searchMatchIndex];
+            let bestTokenIdx = -1;
+            let minDistance = Infinity;
+
+            for (let i = 0; i < uniqueTokens.length; i++) {
+                const t = uniqueTokens[i];
+                const tLine = viewMode === ViewMode.MAN ? t.line : t.yamlLine;
+                if (tLine === -1) continue;
+
+                const dy = match.line - tLine;
+                const dx = match.col - t.startCol;
+
+                // Distance formula: vertical has higher weight.
+                // We want smallest POSITIVE distance (match line >= token line)
+                const distance = dy * 100 + dx;
+                
+                // If distance is negative, token is AFTER the match. 
+                // We penalize tokens after the match heavily.
+                const score = distance >= 0 ? distance : 1000000 + Math.abs(distance);
+
+                if (score < minDistance) {
+                    minDistance = score;
+                    bestTokenIdx = i;
+                }
+            }
+
+            if (bestTokenIdx !== -1) {
+                activeIndex = bestTokenIdx;
+            }
+        };
+
+        const scrollToLineCentered = (lineIdx: number) => {
+            const height = term.height - 3;
+            let newOffset = lineIdx - Math.floor(height / 2);
+            
+            const currentLines = viewMode === ViewMode.MAN ? unstrippedLines : yamlLines;
+            if (newOffset > currentLines.length - height) newOffset = currentLines.length - height;
+            if (newOffset < 0) newOffset = 0;
+            
+            if (viewMode === ViewMode.MAN) offsetY = newOffset;
+            else yamlOffsetY = newOffset;
+        };
+
         const performSearch = () => {
             searchMatches = [];
             if (searchBuffer.length === 0) return;
 
             const lines = viewMode === ViewMode.MAN ? unstrippedLines : yamlLines;
+            const searchStr = searchBuffer.toLowerCase();
             for (let i = 0; i < lines.length; i++) {
-                const col = lines[i].toLowerCase().indexOf(searchBuffer.toLowerCase());
-                if (col !== -1) {
+                const lineText = lines[i].toLowerCase();
+                let col = -1;
+                while ((col = lineText.indexOf(searchStr, col + 1)) !== -1) {
                     searchMatches.push({ line: i, col });
                 }
             }
 
             if (searchMatches.length > 0) {
                 searchMatchIndex = 0;
-                if (viewMode === ViewMode.MAN) offsetY = searchMatches[0].line;
-                else yamlOffsetY = searchMatches[0].line;
+                updateActiveTokenFromMatch();
+                scrollToLineCentered(searchMatches[0].line);
             }
         };
 
@@ -314,14 +386,14 @@ async function main() {
                     switch (name) {
                         case 'n':
                             searchMatchIndex = (searchMatchIndex + 1) % searchMatches.length;
-                            if (viewMode === ViewMode.MAN) offsetY = searchMatches[searchMatchIndex].line;
-                            else yamlOffsetY = searchMatches[searchMatchIndex].line;
+                            updateActiveTokenFromMatch();
+                            scrollToLineCentered(searchMatches[searchMatchIndex].line);
                             render();
                             return;
                         case 'p':
                             searchMatchIndex = (searchMatchIndex - 1 + searchMatches.length) % searchMatches.length;
-                            if (viewMode === ViewMode.MAN) offsetY = searchMatches[searchMatchIndex].line;
-                            else yamlOffsetY = searchMatches[searchMatchIndex].line;
+                            updateActiveTokenFromMatch();
+                            scrollToLineCentered(searchMatches[searchMatchIndex].line);
                             render();
                             return;
                         case 'ESC':
@@ -331,35 +403,10 @@ async function main() {
                             render();
                             return;
                         case 'ENTER':
-                            const match = searchMatches[searchMatchIndex];
-                            let bestTokenIdx = -1;
-                            let minDistance = Infinity;
-
-                            for (let i = 0; i < uniqueTokens.length; i++) {
-                                const t = uniqueTokens[i];
-                                const tLine = viewMode === ViewMode.MAN ? t.line : t.yamlLine;
-                                if (tLine === -1) continue;
-
-                                const dy = tLine - match.line;
-                                const dx = t.startCol - match.col;
-
-                                // Check if match is inside token
-                                const isOverlap = (dy === 0 && match.col >= t.startCol && match.col < t.startCol + t.text.length);
-                                
-                                // Distance formula: vertical has much higher weight
-                                const distance = isOverlap ? -1 : (Math.abs(dy) * 1000 + Math.abs(dx));
-
-                                if (distance < minDistance) {
-                                    minDistance = distance;
-                                    bestTokenIdx = i;
-                                }
+                            if (uniqueTokens.length > 0) {
+                                builtCommand += uniqueTokens[activeIndex]!.text + ' ';
+                                focusArea = FocusArea.BUILDER_BAR;
                             }
-
-                            if (bestTokenIdx !== -1) {
-                                activeIndex = bestTokenIdx;
-                                scrollIntoView();
-                            }
-
                             isFreezeMode = false;
                             searchBuffer = '';
                             searchMatches = [];
@@ -378,6 +425,11 @@ async function main() {
                         break;
                     case '/':
                         focusArea = FocusArea.SEARCH_BAR;
+                        render();
+                        break;
+                    case 'CTRL_O':
+                    case ':':
+                        focusArea = FocusArea.BUILDER_BAR;
                         render();
                         break;
                     case 'BACKSPACE':
@@ -401,6 +453,7 @@ async function main() {
                         break;
                     case 'PAGE_DOWN':
                     case 'CTRL_D':
+                    case ' ':
                         if (viewMode === ViewMode.MAN) offsetY += Math.floor(term.height / 2); else yamlOffsetY += Math.floor(term.height / 2);
                         render();
                         break;
@@ -420,11 +473,15 @@ async function main() {
                         render();
                         break;
                     case 'TAB':
+                    case 'n':
+                        if (isFreezeMode) { isFreezeMode = false; searchBuffer = ''; searchMatches = []; }
                         activeIndex = (activeIndex + 1) % uniqueTokens.length;
                         scrollIntoView();
                         render();
                         break;
                     case 'SHIFT_TAB':
+                    case 'p':
+                        if (isFreezeMode) { isFreezeMode = false; searchBuffer = ''; searchMatches = []; }
                         activeIndex = (activeIndex - 1 + uniqueTokens.length) % uniqueTokens.length;
                         scrollIntoView();
                         render();
@@ -452,6 +509,14 @@ async function main() {
                         break;
                     case 'SHIFT_TAB':
                         focusArea = FocusArea.TEXT_AREA;
+                        render();
+                        break;
+                    case 'ESC':
+                        focusArea = FocusArea.TEXT_AREA;
+                        render();
+                        break;
+                    case '/':
+                        focusArea = FocusArea.SEARCH_BAR;
                         render();
                         break;
                     case 'CTRL_C':

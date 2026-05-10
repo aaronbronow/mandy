@@ -17,6 +17,7 @@ Migrate the TUI to Bun, implement the "Search" Stage 1-3 selection logic, and se
   `D = (match.y - token.y) * 100 + (match.x - token.x)`
   Snap focus to the token with the smallest positive `D` where `type` is `flag` or `arg`.
 
+
 ## 3. Local File Resolution (Clojure Core)
 - [ ] Update argument parser to check `(fs/exists? arg)`.
 - [ ] If path exists, use `man -l path`.

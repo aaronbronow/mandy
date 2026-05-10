@@ -39,7 +39,8 @@
 - **Universal Token Extraction**: Removing positional restrictions (like `startsWith('-')`) on token extraction allows flags to be identified and interactive anywhere in a document, including within prose and explanatory notes.
 - **Word Boundary Regex**: Enforcing `\b` word boundaries in substring searches is critical for reducing false positives (e.g., preventing a search for "log" from matching "logical").
 
-## Headless Automation & Bun (Beta 0.1)
-- **Bun Binary Compilation**: `bun build --compile` creates self-contained binaries, but beware of dynamic `require()` or `import` calls in dependencies (like `terminal-kit`'s terminal detection) which may fail if the module structure isn't fully statically analyzable or if they expect a specific file layout on disk.
-- **Automated TUI Testing**: Implementing a "Playback Mode" via an environment variable (e.g., `MANDY_TEST_KEYS="UP,ENTER"`) allows for reliable automated functional testing. By extracting the key handler into a named function, we can programmatically trigger UI logic and verify output without a manual TTY session.
-- **Native Bun Speed**: Migrating from `node`/`ts-node` to `bun run` significantly reduces startup latency for the TUI component, essential for maintaining a "native feel" in polyglot CLI tools.
+## Search & Navigation (Beta 0.1)
+- **Segment-based Rendering**: When rendering lines with multiple overlapping "features" (e.g., a search match inside an interactive token), calculating boundaries and fragmenting the line into discrete segments is the only way to reliably apply priority. We used a `Set` of boundaries, sorted them, and then styled each fragment based on the highest priority feature (SEARCH > TOKEN).
+- **Live Snap Logic**: Providing a "Live Snap" (immediately updating the active token as you cycle search matches) creates a much more responsive feel than waiting for a confirmation key. 
+- **Distance Weighting for Manuals**: Standard Manhattan distance is insufficient for man pages. Descriptions of flags are almost always *below* the flag itself. The formula was optimized to favor tokens with a positive vertical distance (token is above match), ensuring searching for a keyword in a description snaps back to the preceding flag.
+- **Centered Scrolling**: Jumping to search results is jarring if they appear at the very top or bottom of the screen. Implementing a centered scroll helper ensures the user has immediate visual context above and below the match.
