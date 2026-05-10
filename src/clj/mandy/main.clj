@@ -19,11 +19,19 @@
 
 (defn strip-troff [line]
   (-> line
-      (str/replace #"\\f[BIRP]" "")           ; Strip \fB, \fI, etc.
-      (str/replace #"^\.[BIRP]\s+" "")        ; Strip leading .B, .I
-      (str/replace #"^\.[a-z]{2}\s+" "")      ; Strip leading other macros like .sp
-      (str/replace #"\\\(.." "")             ; Strip complex characters like \(bu
-      (str/replace #"\\." "")))               ; Strip remaining backslash escapes
+      (str/replace #"^\.[A-Z]{1,10}(\s+|$)" "") ; Strip leading capital macros (e.g., .PP, .INDENT, .TP)
+      (str/replace #"^\.[a-z]{1,2}(\s+|$)" "")  ; Strip leading lowercase macros (e.g., .in, .br, .sp)
+      (str/replace #"^\.\s*$" "")               ; Strip standalone dots
+      (str/replace #"\.IX\s+.*" "")             ; Strip indexing macros and their entire line
+      (str/replace #"\.[IB][IRP]?\s+" "")       ; Strip common mdoc/man font macros (inline-style)
+      (str/replace #"\.(It|Ic|Ar|Fl)\s+" "")   ; Strip mdoc .It, .Ic, .Ar, .Fl
+      (str/replace #"\\f[BIRP]" "")             ; Strip inline font changes \fB, \fI, etc.
+      (str/replace #"\\s[+-]?\d+" "")           ; Strip inline size changes \sN, \s+N
+      (str/replace #"\\\*(\([a-zA-Z0-9]{2}|\[[a-zA-Z0-9]+\]|.)" "") ; Strip \* interpolation
+      (str/replace #"\\n(\([a-zA-Z0-9]{2}|\[[a-zA-Z0-9]+\]|.)" "") ; Strip \n interpolation
+      (str/replace #"\\&" "")                   ; Strip non-printing &
+      (str/replace #"\\\(.." "")               ; Strip complex characters like \(bu
+      (str/replace #"\\." "")))                 ; Strip remaining backslash escapes
 
 (defn parse-man [indexed-lines]
   (reduce (fn [acc [idx line]]
