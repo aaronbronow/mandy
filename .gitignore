@@ -4,6 +4,7 @@ target
 /release-test
 .cpcache
 /mandy
+.mandy_payload_path
 /bin
 *.jar
 .zcompdump*
