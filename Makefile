@@ -9,10 +9,10 @@ mandy: mandy-cli
 
 build: mandy-cli mandy-ui
 
-# 1. Clojure Component (Native Image)
+# 1. Clojure Component (Uberjar)
 mandy-cli:
-	clojure -T:build native
-	@echo "Created mandy native binary"
+	clojure -T:build uber
+	@echo "Created mandy uberjar"
 
 # 2. TUI Component (Compiled Bun Binary)
 mandy-ui:

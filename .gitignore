@@ -1,6 +1,7 @@
 node_modules
 dist
 target
+/release-test
 .cpcache
 /mandy
 /bin
