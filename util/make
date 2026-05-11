@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cmd=$1; shift
+
+generate-payload() {
+  local mandy_cmd=${1:-ls}
+  local path
+  path=$(MANDY_DRY_RUN=1 clojure -M -m mandy.main "$mandy_cmd")
+  if [[ -z $path || ! -f $path ]]; then
+    echo "Error: Failed to generate payload"
+    exit 1
+  fi
+  echo "$path"
+}
+
+cmd:test-tui-select() {
+  local payload_path
+  payload_path=$(generate-payload ls)
+  rm -f /tmp/mandy_buffer
+  MANDY_TEST_KEYS="ENTER,ENTER" \
+  MANDY_PAYLOAD_PATH="$payload_path" \
+    bun run src/index.ts 2>&1
+  if [[ -f /tmp/mandy_buffer ]]; then
+    echo "TUI Select Test Passed: $(cat /tmp/mandy_buffer)"
+    rm /tmp/mandy_buffer
+  else
+    echo "TUI Select Test Failed: No buffer created"
+    echo "Payload content:"
+    cat "$payload_path"
+    exit 1
+  fi
+}
+
+cmd:test-tui-quit() {
+  local payload_path
+  payload_path=$(generate-payload ls)
+  rm -f /tmp/mandy_buffer
+  MANDY_TEST_KEYS="q" \
+  MANDY_PAYLOAD_PATH="$payload_path" \
+    bun run src/index.ts 2>&1
+  if [[ -f /tmp/mandy_buffer ]]; then
+    echo "TUI Quit Test Failed: Buffer was created"
+    rm /tmp/mandy_buffer
+    exit 1
+  else
+    echo "TUI Quit Test Passed"
+  fi
+}
+
+cmd:test-tui-search() {
+  local payload_path
+  payload_path=$(generate-payload ls)
+  rm -f /tmp/mandy_buffer
+  MANDY_TEST_KEYS="/,-,-,a,l,l,ENTER,ENTER,ENTER,ENTER" \
+  MANDY_PAYLOAD_PATH="$payload_path" \
+    bun run src/index.ts 2>&1
+  if [[ -f /tmp/mandy_buffer ]] && grep -q "\--all" /tmp/mandy_buffer; then
+    echo "TUI Search Test Passed: $(cat /tmp/mandy_buffer)"
+    rm /tmp/mandy_buffer
+  else
+    echo "TUI Search Test Failed: Expected --all in buffer"
+    [[ -f /tmp/mandy_buffer ]] && echo "Found: $(cat /tmp/mandy_buffer)"
+    echo "Payload content:"
+    cat "$payload_path"
+    exit 1
+  fi
+}
+
+cmd:debug-tui() {
+  local mandy_cmd=${CMD:-ls}
+  local payload_path
+  payload_path=$(MANDY_DRY_RUN=1 clojure -M -m mandy.main "$mandy_cmd")
+  MANDY_PAYLOAD_PATH="$payload_path" bun run src/index.ts "$mandy_cmd"
+}
+
+cmd:debug-payload() {
+  local mandy_cmd=${CMD:-ls}
+  local payload_path
+  payload_path=$(MANDY_DRY_RUN=1 clojure -M -m mandy.main "$mandy_cmd") || {
+    echo "" > .mandy_payload_path
+    exit 1
+  }
+  echo "$payload_path" > .mandy_payload_path
+  cat "$payload_path"
+  echo ""
+  echo "Payload saved to: $payload_path"
+}
+
+cmd:run-tui() {
+  local p_path=''
+  [[ -f .mandy_payload_path ]] && p_path=$(cat .mandy_payload_path)
+  local final_path=${FILE:-${MANDY_PAYLOAD_PATH:-$p_path}}
+  if [[ -z $final_path || ! -f $final_path ]]; then
+    echo "Error: No valid payload found. Run 'make debug-payload' first or provide FILE="
+    exit 1
+  fi
+  MANDY_PAYLOAD_PATH="$final_path" bun run src/index.ts
+}
+
+cmd:release-all() {
+  local version=$VERSION
+  mkdir -p release
+  clojure -T:build uber
+  for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+    echo "Building for $target..."
+    bun build --compile --target="bun-$target" ./src/index.ts \
+      --outfile "./bin/mandy-ui-$target"
+    mkdir -p "release/mandy-v${version}-${target}/bin"
+    cp mandy "release/mandy-v${version}-${target}/bin/mandy"
+    cp "./bin/mandy-ui-${target}" "release/mandy-v${version}-${target}/bin/mandy-ui"
+    tar -czf "release/mandy-v${version}-${target}.tar.gz" \
+      -C "release/mandy-v${version}-${target}" .
+    echo "Created release/mandy-v${version}-${target}.tar.gz"
+  done
+  rm -rf release/mandy-v"${version}"-*
+}
+
+"cmd:$cmd" "$@"

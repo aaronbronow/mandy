@@ -1,7 +1,4 @@
 {:paths ["src/clj"]
  :deps {clj-commons/clj-yaml {:mvn/version "1.0.29"}
         cheshire/cheshire {:mvn/version "5.13.0"}
-        org.yamlscript/clj-yamlscript {:mvn/version "0.2.8"}}
- :aliases
- {:build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.13"}}
-          :ns-default build}}}
+        org.yamlscript/clj-yamlscript {:mvn/version "0.2.8"}}}
