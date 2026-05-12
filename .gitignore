@@ -3,6 +3,7 @@ dist
 target
 /release-test
 .cpcache
+.cache
 /mandy
 .mandy_payload_path
 /bin

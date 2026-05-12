@@ -1,116 +1,94 @@
-.PHONY: clean uber mandy-cli mandy-ui test test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search build release-all
-
 VERSION := 0.1.0
-JAR_NAME := mandy-$(VERSION)-standalone.jar
 
-all: mandy-cli mandy-ui
+R := https://github.com/makeplus/makes
+M := .cache/makes
+$(shell [ -d '$M' ] || git clone -q $R '$M')
 
-mandy: mandy-cli
+include $M/init.mk
+include $M/bun.mk
+include $M/graalvm.mk
+include $M/clojure.mk
+include $M/clean.mk
+include $M/shell.mk
+
+UBER-JAR := target/mandy-$(VERSION)-standalone.jar
+
+MAKES-CLEAN := mandy
+MAKES-REALCLEAN := dist bin release .cpcache
+MAKES-DISTCLEAN := node_modules
+
 
 build: mandy-cli mandy-ui
 
-# 1. Clojure Component (Uberjar)
-mandy-cli:
-	clojure -T:build uber
-	@echo "Created mandy uberjar"
+jar: $(UBER-JAR)
+
+# 1. Clojure Component (Native Image)
+mandy-cli: mandy
 
 # 2. TUI Component (Compiled Bun Binary)
-mandy-ui:
-	npm run build
+mandy-ui: $(BUN)
+	bun install
+	bun run build
 
-shell: mandy-ui
+mandy: $(UBER-JAR) $(GRAALVM)
+	native-image \
+	  -jar $< \
+	  mandy \
+	  --no-fallback \
+	  --initialize-at-build-time \
+	  -H:+UnlockExperimentalVMOptions \
+	  -H:IncludeResources=base.ys \
+	  -H:+ReportExceptionStackTraces
+	@echo "Created mandy native binary"
+
+$(UBER-JAR): $(CLOJURE) src/clj/mandy/main.clj plugins/base.clj plugins/base.ys
+	rm -rf target/uber target/classes
+	mkdir -p target/uber target/classes
+	cp plugins/* target/classes/
+	clojure -M -e "(binding [*compile-path* \"target/classes\"] (compile 'mandy.main))"
+	for j in $$(clojure -Spath | tr ':' '\n' | grep '\.jar$$'); do \
+	  (cd target/uber && jar xf "$$j"); \
+	done
+	cp -r target/classes/* target/uber/
+	jar cfe $@ mandy.main -C target/uber .
+	rm -rf target/uber target/classes
+
+zsh-shell: mandy-ui
 	ZDOTDIR=$$PWD zsh -is eval "source .mandyrc"
 
-clean:
-	clojure -T:build clean
+clean::
+	rm -rf target
 	rm -f mandy
-	rm -rf dist bin release
 
 test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search
 
-test-debug:
+test-debug: $(CLOJURE)
 	clojure -M -m mandy.main pwd --debug
 
-test-sanitized:
+test-sanitized: $(CLOJURE)
 	clojure -M -m mandy.main pwd --strip
 
-test-tokens:
+test-tokens: $(CLOJURE)
 	clojure -M -m mandy.main ls --debug | ys -J -
 
-test-tui-select: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
-	if [ -z "$$PAYLOAD_PATH" ] || [ ! -f "$$PAYLOAD_PATH" ]; then echo "Error: Failed to generate payload" ; exit 1 ; fi ; \
-	rm -f /tmp/mandy_buffer ; \
-	MANDY_TEST_KEYS="ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts 2>&1 ; \
-	if [ -f /tmp/mandy_buffer ]; then \
-		echo "TUI Select Test Passed: $$(cat /tmp/mandy_buffer)" ; \
-		rm /tmp/mandy_buffer ; \
-	else \
-		echo "TUI Select Test Failed: No buffer created" ; \
-		echo "Payload content:" ; cat $$PAYLOAD_PATH ; \
-		exit 1 ; \
-	fi
+test-tui-select: mandy-ui $(BUN)
+	@util/make test-tui-select
 
-test-tui-quit: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
-	if [ -z "$$PAYLOAD_PATH" ] || [ ! -f "$$PAYLOAD_PATH" ]; then echo "Error: Failed to generate payload" ; exit 1 ; fi ; \
-	rm -f /tmp/mandy_buffer ; \
-	MANDY_TEST_KEYS="q" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts 2>&1 ; \
-	if [ -f /tmp/mandy_buffer ]; then \
-		echo "TUI Quit Test Failed: Buffer was created" ; rm /tmp/mandy_buffer ; exit 1 ; \
-	else \
-		echo "TUI Quit Test Passed" ; \
-	fi
+test-tui-quit: mandy-ui $(BUN)
+	@util/make test-tui-quit
 
-test-tui-search: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main ls) ; \
-	if [ -z "$$PAYLOAD_PATH" ] || [ ! -f "$$PAYLOAD_PATH" ]; then echo "Error: Failed to generate payload" ; exit 1 ; fi ; \
-	rm -f /tmp/mandy_buffer ; \
-	MANDY_TEST_KEYS="/,-,-,a,l,l,ENTER,ENTER,ENTER,ENTER" MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts 2>&1 ; \
-	if [ -f /tmp/mandy_buffer ] && grep -q "\--all" /tmp/mandy_buffer; then \
-		echo "TUI Search Test Passed: $$(cat /tmp/mandy_buffer)" ; \
-		rm /tmp/mandy_buffer ; \
-	else \
-		echo "TUI Search Test Failed: Expected --all in buffer" ; \
-		[ -f /tmp/mandy_buffer ] && echo "Found: $$(cat /tmp/mandy_buffer)" ; \
-		echo "Payload content:" ; cat $$PAYLOAD_PATH ; \
-		exit 1 ; \
-	fi
+test-tui-search: mandy-ui $(BUN)
+	@util/make test-tui-search
 
-debug-tui: mandy-ui
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main $(or $(CMD),ls)) ; \
-	MANDY_PAYLOAD_PATH=$$PAYLOAD_PATH bun run src/index.ts $(or $(CMD),ls)
+debug-tui: mandy-ui $(BUN)
+	@CMD=$(or $(CMD),ls) util/make debug-tui
 
 debug-payload:
-	@PAYLOAD_PATH=$$(MANDY_DRY_RUN=1 clojure -M -m mandy.main $(or $(CMD),ls)) || { echo "" > .mandy_payload_path ; exit 1 ; } ; \
-	echo $$PAYLOAD_PATH > .mandy_payload_path ; \
-	cat $$PAYLOAD_PATH ; \
-	echo "\nPayload saved to: $$PAYLOAD_PATH"
+	@CMD=$(or $(CMD),ls) util/make debug-payload
 
-run-tui: mandy-ui
-	@P_PATH=$$( [ -f .mandy_payload_path ] && cat .mandy_payload_path ) ; \
-	FINAL_PATH=$${FILE:-$${MANDY_PAYLOAD_PATH:-$$P_PATH}} ; \
-	if [ -z "$$FINAL_PATH" ] || [ ! -f "$$FINAL_PATH" ]; then \
-		echo "Error: No valid payload found. Run 'make debug-payload' first or provide FILE="; \
-		exit 1; \
-	fi ; \
-	MANDY_PAYLOAD_PATH=$$FINAL_PATH bun run src/index.ts
+run-tui: mandy-ui $(BUN)
+	@util/make run-tui
 
 # 3. Release Orchestration
-release-all: clean
-	mkdir -p release
-	# Build the Uberjar once
-	clojure -T:build uber
-	# Build for each target
-	for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do \
-		echo "Building for $$target..." ; \
-		bun build --compile --target=bun-$$target ./src/index.ts --outfile ./bin/mandy-ui-$$target ; \
-		mkdir -p release/mandy-v$(VERSION)-$$target/bin ; \
-		# Copy assets \
-		cp mandy release/mandy-v$(VERSION)-$$target/bin/mandy ; \
-		cp ./bin/mandy-ui-$$target release/mandy-v$(VERSION)-$$target/bin/mandy-ui ; \
-		# Package \
-		tar -czf release/mandy-v$(VERSION)-$$target.tar.gz -C release/mandy-v$(VERSION)-$$target . ; \
-		echo "Created release/mandy-v$(VERSION)-$$target.tar.gz" ; \
-	done
-	rm -rf release/mandy-v$(VERSION)-*
+release-all: clean $(BUN)
+	@VERSION=$(VERSION) util/make release-all
