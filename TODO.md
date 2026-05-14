@@ -45,6 +45,7 @@ By separating the **Parser (Clojure)** from the **UI (Bun)**, Mandy serves both 
 ## 🌊 Future Roadmap
 - [x] **Cross-Platform Release Automation**: GitHub Actions to package multi-arch binaries (`.tar.gz`) on every tag or manual trigger.
 - [x] **Future-Proof CI**: Opt-in to Node.js 24 for all internal GitHub Actions.
+- [ ] **Subagent Integration**: Create a downstream `man_discovery` project defining a Gemini CLI subagent that uses Mandy as a high-signal data source for system-wide manual exploration.
 - [ ] **Plugin System**: Allow custom YAMLScript logic for specialized command parsers (Engine embedded, currently using Clojure stability path).
 
 ---

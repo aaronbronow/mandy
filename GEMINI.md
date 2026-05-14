@@ -39,6 +39,13 @@
 - **Universal Token Extraction**: Removing positional restrictions (like `startsWith('-')`) on token extraction allows flags to be identified and interactive anywhere in a document, including within prose and explanatory notes.
 - **Word Boundary Regex**: Enforcing `\b` word boundaries in substring searches is critical for reducing false positives (e.g., preventing a search for "log" from matching "logical").
 
+## Subagent Integration & Agentic Retrieval (Beta 0.1)
+- **High-Signal Data Sources**: Standard tools like `man` or `apropos` are designed for human consumption and can be "noisy" for LLM context windows. By providing a structured YAML/JSON output (`mandy <cmd> | cat`), we create a high-signal API that allows agents to jump directly to specific sections (e.g., SYNOPSIS, OPTIONS) without expensive token-waste on formatting characters.
+- **Downstream Agent Pattern**: To keep core tools lean, specialized agentic behavior (like a `man-expert`) should live in downstream projects. These projects contain the subagent definition (`.md` + YAML frontmatter) and pull in pre-compiled binaries from the core project as needed.
+- **Policy-Based Sandboxing**: Custom subagents can be strictly restricted to specific tools and command sets via the Gemini CLI Policy Engine (`policy.toml`). This allows for safe, "expert" agents that can execute a narrow set of system commands (like `man` or `mandy`) while being denied access to more sensitive tools.
+- **Deep Search Snippets**: Using `zgrep` with context flags (`-C 1`) and a custom `troff` stripper provides the LLM with enough context to evaluate search result relevance across the entire system manual database in a single turn.
+
+
 ## CI/CD & Release Management (Beta 0.1)
 - **Two-Stage Pipelines**: Separating "build" and "release" into distinct jobs in GitHub Actions prevents partial release failures. Consolidate binaries as artifacts first, then create a single release with all consolidated assets.
 - **Node.js 24 Transition**: Proactively setting `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` ensures internal GitHub Actions are compatible with upcoming runtime deprecations (Node 20).
