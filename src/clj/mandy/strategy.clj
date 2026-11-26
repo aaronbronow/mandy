@@ -25,6 +25,8 @@
                "all" "get" "list" "show" "run" "make" "use" "check" "find" "create"
                "convert" "extract"]
    :intent_synonyms {}
+   :blocked_package_managers ["apt" "apt-get" "dpkg" "snap" "pip" "pip3"]
+   :command_safety {}
    :weights {:exact_binary_match 120
              :binary_prefix_match 60
              :package_name_match 50

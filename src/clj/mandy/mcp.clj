@@ -2,13 +2,14 @@
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [mandy.check :as check]
             [mandy.strategy :as strategy]
             [mandy.ubuntu :as ubuntu])
   (:import [java.io BufferedReader InputStreamReader]))
 
-(def ^:private tool-definition
+(def ^:private discover-tool-definition
   {:name "discover_local_tool"
-   :description "Discover verified local Ubuntu CLI tools, dpkg package provenance, and exact flags from man/--help without guessing or installing."
+   :description "Discover verified local Ubuntu CLI tools, dpkg package provenance, side_effects/usage_order safety metadata, and exact flags from man/--help without guessing or installing."
    :inputSchema {:type "object"
                  :properties {:intent {:type "string"
                                        :description "Short description of what you want to do (e.g. 'extract PNG frame from video', 'compute 256-bit blake2 checksum')."}
@@ -17,6 +18,18 @@
                               :limit {:type "integer"
                                       :description "Max verified tools to return (1-5; defaults to 1 for exact binary match, 2 for intent search)."}}
                  :required ["intent"]}})
+
+(def ^:private check-tool-definition
+  {:name "check_local_command"
+   :description "Deterministic PreToolUse guardrail that validates a proposed bash command against local binaries, documented long flags, GNU tar/redirect footguns, and dry-run preview requirements before execution."
+   :inputSchema {:type "object"
+                 :properties {:command {:type "string"
+                                        :description "Proposed shell command string to validate."}
+                              :require_dry_run_preview {:type "boolean"
+                                                        :description "Require a --dry-run (-n) preview in this session before destructive rsync --delete (default true)."}
+                              :block_package_installs {:type "boolean"
+                                                       :description "Block apt/dpkg/pip/snap install commands (default true)."}}
+                 :required ["command"]}})
 
 (defn- write-response! [msg]
   (println (json/generate-string msg))
@@ -32,19 +45,21 @@
   (when-not (str/blank? s)
     (-> s str/trim str/lower-case (str/replace #"\s+" " "))))
 
-(defn- handle-request [req seen-queries]
+(defn- handle-request [req seen-queries session-state]
   (let [id (:id req)
         method (:method req)
         params (:params req)]
     (cond
       (= method "initialize")
       (do (reset! seen-queries {})
+          (reset! session-state {:previewed #{}})
           (jsonrpc-result id {:protocolVersion "2024-11-05"
                               :capabilities {:tools {}}
-                              :serverInfo {:name "mandy" :version "0.2.0-ubuntu"}}))
+                              :serverInfo {:name "mandy" :version "0.3.0-ubuntu"}}))
 
       (= method "notifications/mandy/reset_session")
       (do (reset! seen-queries {})
+          (reset! session-state {:previewed #{}})
           nil)
 
       (or (nil? id) (= method "notifications/initialized"))
@@ -54,14 +69,13 @@
       (jsonrpc-result id {})
 
       (= method "tools/list")
-      (jsonrpc-result id {:tools [tool-definition]})
+      (jsonrpc-result id {:tools [discover-tool-definition check-tool-definition]})
 
       (= method "tools/call")
       (let [tool-name (:name params)
             args (:arguments params)]
-        (if (not= tool-name "discover_local_tool")
-          (jsonrpc-result id {:content [{:type "text" :text (str "Unknown tool: " tool-name)}]
-                              :isError true})
+        (cond
+          (= tool-name "discover_local_tool")
           (try
             (let [intent (str (or (:intent args) ""))
                   kw (when-let [k (:keyword args)]
@@ -89,7 +103,32 @@
                                           :isError false}))))))
             (catch Exception e
               (jsonrpc-result id {:content [{:type "text" :text (str "Discovery error: " (.getMessage e))}]
-                                  :isError true})))))
+                                  :isError true})))
+
+          (= tool-name "check_local_command")
+          (try
+            (let [cmd (str (or (:command args) ""))
+                  strict-preview? (if (contains? args :require_dry_run_preview)
+                                    (boolean (:require_dry_run_preview args))
+                                    true)
+                  block-pkgs? (if (contains? args :block_package_installs)
+                                (boolean (:block_package_installs args))
+                                true)]
+              (if (str/blank? cmd)
+                (jsonrpc-result id {:content [{:type "text" :text "Error: 'command' is required."}]
+                                    :isError true})
+                (let [res (check/check-command cmd {:session-state session-state
+                                                    :strict-preview? strict-preview?
+                                                    :block-pkg-installs? block-pkgs?})]
+                  (jsonrpc-result id {:content [{:type "text" :text (check/format-check-text res)}]
+                                      :isError false}))))
+            (catch Exception e
+              (jsonrpc-result id {:content [{:type "text" :text (str "Check error: " (.getMessage e))}]
+                                  :isError true})))
+
+          :else
+          (jsonrpc-result id {:content [{:type "text" :text (str "Unknown tool: " tool-name)}]
+                              :isError true})))
 
       :else
       (jsonrpc-error id -32601 (str "Method not found: " method)))))
@@ -101,13 +140,14 @@
   (strategy/load-ubuntu-strategy)
   (ubuntu/load-dpkg-status)
   (let [reader (BufferedReader. (InputStreamReader. System/in "UTF-8"))
-        seen-queries (atom {})]
+        seen-queries (atom {})
+        session-state (atom {:previewed #{}})]
     (loop []
       (when-let [line (.readLine reader)]
         (when-not (str/blank? line)
           (try
             (let [req (json/parse-string line true)]
-              (when-let [resp (handle-request req seen-queries)]
+              (when-let [resp (handle-request req seen-queries session-state)]
                 (write-response! resp)))
             (catch Exception e
               (binding [*out* *err*]

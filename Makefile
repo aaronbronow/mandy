@@ -41,11 +41,11 @@ mandy: $(UBER-JAR) $(GRAALVM)
 	  -H:+ReportExceptionStackTraces
 	@echo "Created mandy native binary"
 
-$(UBER-JAR): $(CLOJURE) src/clj/mandy/strategy.clj src/clj/mandy/ubuntu.clj src/clj/mandy/mcp.clj src/clj/mandy/main.clj plugins/base.clj plugins/base.ys plugins/ubuntu_discovery.ys
+$(UBER-JAR): $(CLOJURE) src/clj/mandy/strategy.clj src/clj/mandy/ubuntu.clj src/clj/mandy/check.clj src/clj/mandy/mcp.clj src/clj/mandy/main.clj plugins/base.clj plugins/base.ys plugins/ubuntu_discovery.ys
 	rm -rf target/uber target/classes
 	mkdir -p target/uber target/classes
 	cp plugins/* target/classes/
-	clojure -M -e "(binding [*compile-path* \"target/classes\"] (compile 'mandy.strategy) (compile 'mandy.ubuntu) (compile 'mandy.mcp) (compile 'mandy.main))"
+	clojure -M -e "(binding [*compile-path* \"target/classes\"] (compile 'mandy.strategy) (compile 'mandy.ubuntu) (compile 'mandy.check) (compile 'mandy.mcp) (compile 'mandy.main))"
 	for j in $$(clojure -Spath | tr ':' '\n' | grep '\.jar$$'); do \
 	  (cd target/uber && jar xf "$$j"); \
 	done
@@ -66,6 +66,9 @@ test-ubuntu: $(UBER-JAR)
 	./bin/mandy discover --intent "case insensitive regex search by file type" --keyword rg
 	./bin/mandy discover --intent "compute 256-bit blake2 checksum" --keyword b2sum
 	./bin/mandy discover --intent "find json files" --keyword fd
+	./bin/mandy check --no-strict-preview "rg -i -n -t py retry_limit src/"
+	@./bin/mandy check "tar -czf bundle.tar.gz project/ --exclude='*.log'" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
+	@./bin/mandy check "rsync -av --delete src_dir/ dst_dir/" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
 
 test-debug: $(CLOJURE)
 	clojure -M -m mandy.main pwd --debug

@@ -10,13 +10,14 @@ interface TaskSpec {
   prompt: string;
 }
 
-type Arm = 'baseline' | 'mandy_primary' | 'mandy_fallback';
+type Arm = 'baseline' | 'harness_mandy_guardrail' | 'harness_mandy_full' | 'mandy_primary' | 'mandy_fallback';
 
 interface RunResult {
   task_id: string;
   category: string;
   arm: Arm;
   passed: boolean;
+  unwanted_mutation: boolean;
   verify_reason: string;
   turns: number;
   prompt_tokens: number;
@@ -26,11 +27,14 @@ interface RunResult {
   bash_calls: number;
   mandy_calls: number;
   file_calls: number;
+  prevented_bad_execs: number;
   failed_shell_retries: number;
   cmd_not_found_count: number;
   hallucinated_flag_count: number;
   wall_clock_ms: number;
   inference_ms: number;
+  discover_ms: number;
+  check_ms: number;
   mandy_ms: number;
   bash_ms: number;
   transcript: Array<{ turn: number; tool?: string; args?: any; exit_code?: number; ms?: number; note?: string }>;
@@ -127,6 +131,18 @@ class McpClient {
   resetSession() {
     const stdin = this.proc.stdin as any;
     stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/mandy/reset_session' }) + '\n');
+  }
+
+  async checkCommand(command: string): Promise<{ blocked: boolean; text: string; ms: number }> {
+    const t0 = performance.now();
+    const res = await this.request('tools/call', {
+      name: 'check_local_command',
+      arguments: { command, require_dry_run_preview: true, block_package_installs: true },
+    });
+    const ms = Math.round(performance.now() - t0);
+    const text = res?.content?.[0]?.text ?? JSON.stringify(res);
+    const blocked = text.trimStart().startsWith('BLOCK');
+    return { blocked, text, ms };
   }
 
   close() {
@@ -258,21 +274,31 @@ function systemPromptForArm(arm: Arm): string {
   if (arm === 'baseline') {
     return common + '\nUse bash/read_file/write_file/edit_file to inspect available tools and complete the task.';
   }
-  if (arm === 'mandy_primary') {
+  if (arm === 'mandy_primary' || arm === 'harness_mandy_full') {
+    const hookNote =
+      arm === 'harness_mandy_full'
+        ? '\n- The harness enforces a pre-execution guardrail on bash calls (`check_local_command`). If a command is blocked (e.g., missing binary, bad flag order, missing compression flag, or unpreviewed `rsync --delete`), follow the diagnostic or call `discover_local_tool`.'
+        : '';
     return (
       common +
-      '\n\n## Mandy Ubuntu Discovery (Primary Mode)\n' +
-      '- ALWAYS call `discover_local_tool(intent, keyword?)` BEFORE running non-trivial CLI commands or checking whether a named tool (e.g., fd, yq, exiftool, 7z, b2sum, ys, busybox, ffmpeg, jq, rg, pdftotext, pdfunite, zstd, rsync, tree, sqlite3) exists on the system.\n' +
+      '\n\n## Mandy Ubuntu Discovery (Primary / Hybrid Mode)\n' +
+      '- Call `discover_local_tool(intent, keyword?)` BEFORE running unfamiliar, mutating (`rsync`, `tar`, `sed`), `man`-less (`b2sum`, `ys`, `busybox`), or named tools whose local availability/flags you have not verified (e.g., `fd`, `yq`, `exiftool`, `7z`, `ffmpeg`, `jq`, `rg`, `pdftotext`, `pdfunite`, `zstd`, `tree`, `sqlite3`).\n' +
       '- Do NOT probe with `which`, `man`, or `--help` in bash when `discover_local_tool` can give you verified binaries and exact flags in one call.\n' +
-      '- Never execute any binary listed under `NOT_INSTALLED`; use verified tools in `RESULTS` or report unavailable if instructed.'
+      '- Never execute any binary listed under `NOT_INSTALLED`; use verified tools in `RESULTS` or report unavailable if instructed.' +
+      hookNote
     );
   }
+  const guardrailNote =
+    arm === 'harness_mandy_guardrail'
+      ? '\n- The harness runs a pre-execution guardrail on every bash command (`check_local_command`). If a command is blocked before execution (missing binary, flag order, archive mismatch, overwrite redirect, or `rsync --delete` requiring a `--dry-run` preview first), follow its message or call `discover_local_tool`.'
+      : '';
   return (
     common +
     '\n\n## Mandy Ubuntu Discovery (Fallback Mode)\n' +
     '- Attempt direct execution with `bash` first when you think you know the tool and flags.\n' +
-    '- Immediately call `discover_local_tool(intent, keyword?)` whenever a command fails with exit code 127 (`command not found`), an invalid/unknown flag error, or unexpected tool behavior.\n' +
-    '- Never execute any binary listed under `NOT_INSTALLED`; use verified tools in `RESULTS` or report unavailable if instructed.'
+    '- Immediately call `discover_local_tool(intent, keyword?)` whenever a command or pre-execution guardrail reports a missing binary, unknown flag, or syntax error.\n' +
+    '- Never execute any binary listed under `NOT_INSTALLED`; use verified tools in `RESULTS` or report unavailable if instructed.' +
+    guardrailNote
   );
 }
 
@@ -281,6 +307,7 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
   setupFixture(task.id, workdir);
   if (mcp) mcp.resetSession();
 
+  const useGuardrail = arm === 'harness_mandy_guardrail' || arm === 'harness_mandy_full';
   const tools = arm === 'baseline' ? CORE_TOOLS : [...CORE_TOOLS, MANDY_TOOL];
   const messages: Array<Record<string, any>> = [
     { role: 'system', content: systemPromptForArm(arm) },
@@ -294,11 +321,13 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
   let bashCalls = 0;
   let mandyCalls = 0;
   let fileCalls = 0;
+  let preventedBadExecs = 0;
   let failedShellRetries = 0;
   let cmdNotFoundCount = 0;
   let hallucinatedFlagCount = 0;
   let inferenceMs = 0;
-  let mandyMs = 0;
+  let discoverMs = 0;
+  let checkMs = 0;
   let bashMs = 0;
   const transcript: RunResult['transcript'] = [];
 
@@ -344,20 +373,39 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
 
       let toolOutput = '';
       if (name === 'bash') {
-        bashCalls++;
-        const res = await execBash(workdir, String(args.command ?? ''));
-        bashMs += res.ms;
-        if (res.exit_code !== 0) failedShellRetries++;
-        if (res.exit_code === 127 || /command not found/i.test(res.stderr)) cmdNotFoundCount++;
-        if (/unrecognized option|unknown option|invalid option|unexpected argument|unknown flag|unrecognized argument|illegal option|no such option/i.test(res.stderr)) {
-          hallucinatedFlagCount++;
+        const cmdStr = String(args.command ?? '');
+        let blocked = false;
+        let checkNote = '';
+        if (useGuardrail && mcp) {
+          const chk = await mcp.checkCommand(cmdStr);
+          checkMs += chk.ms;
+          if (chk.blocked) {
+            blocked = true;
+            preventedBadExecs++;
+            transcript.push({ turn, tool: 'bash_blocked', args: cmdStr, ms: chk.ms, note: chk.text });
+            toolOutput = JSON.stringify({ exit_code: 2, blocked_by_guardrail: true, stdout: '', stderr: chk.text });
+          } else if (chk.text.includes('recorded dry-run preview')) {
+            checkNote = chk.text + ' (Preview only: no files were modified yet; re-run without --dry-run/-n to apply.)';
+          }
         }
-        transcript.push({ turn, tool: 'bash', args: args.command, exit_code: res.exit_code, ms: res.ms });
-        toolOutput = JSON.stringify({ exit_code: res.exit_code, stdout: res.stdout, stderr: res.stderr });
+        if (!blocked) {
+          bashCalls++;
+          const res = await execBash(workdir, cmdStr);
+          bashMs += res.ms;
+          if (res.exit_code !== 0) failedShellRetries++;
+          if (res.exit_code === 127 || /command not found/i.test(res.stderr)) cmdNotFoundCount++;
+          if (/unrecognized option|unknown option|invalid option|unexpected argument|unknown flag|unrecognized argument|illegal option|no such option/i.test(res.stderr)) {
+            hallucinatedFlagCount++;
+          }
+          transcript.push({ turn, tool: 'bash', args: cmdStr, exit_code: res.exit_code, ms: res.ms });
+          const payload: Record<string, any> = { exit_code: res.exit_code, stdout: res.stdout, stderr: res.stderr };
+          if (checkNote) payload.guardrail_note = checkNote;
+          toolOutput = JSON.stringify(payload);
+        }
       } else if (name === 'discover_local_tool' && mcp) {
         mandyCalls++;
         const res = await mcp.callDiscover(String(args.intent ?? ''), args.keyword ? String(args.keyword) : undefined, args.limit ? Number(args.limit) : undefined);
-        mandyMs += res.ms;
+        discoverMs += res.ms;
         transcript.push({ turn, tool: 'discover_local_tool', args, ms: res.ms });
         toolOutput = res.text;
       } else if (name === 'read_file') {
@@ -410,6 +458,7 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
     category: task.category,
     arm,
     passed: v.passed,
+    unwanted_mutation: Boolean(v.unwanted_mutation),
     verify_reason: v.reason,
     turns,
     prompt_tokens: promptTokens,
@@ -419,12 +468,15 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
     bash_calls: bashCalls,
     mandy_calls: mandyCalls,
     file_calls: fileCalls,
+    prevented_bad_execs: preventedBadExecs,
     failed_shell_retries: failedShellRetries,
     cmd_not_found_count: cmdNotFoundCount,
     hallucinated_flag_count: hallucinatedFlagCount,
     wall_clock_ms: wallClockMs,
     inference_ms: inferenceMs,
-    mandy_ms: mandyMs,
+    discover_ms: discoverMs,
+    check_ms: checkMs,
+    mandy_ms: discoverMs + checkMs,
     bash_ms: bashMs,
     transcript,
   };
@@ -435,11 +487,14 @@ function summarizeArm(arm: Arm, runs: RunResult[]) {
   const mean = (fn: (r: RunResult) => number) => (n ? +(runs.reduce((s, r) => s + fn(r), 0) / n).toFixed(2) : 0);
   const sum = (fn: (r: RunResult) => number) => runs.reduce((s, r) => s + fn(r), 0);
   const passedCount = runs.filter(r => r.passed).length;
+  const mutCount = runs.filter(r => r.unwanted_mutation).length;
   return {
     arm,
     n,
     passed: passedCount,
     pass_rate_pct: n ? +((passedCount * 100) / n).toFixed(1) : 0,
+    unwanted_mutations: mutCount,
+    prevented_bad_execs: sum(r => r.prevented_bad_execs),
     mean_prompt_tokens: mean(r => r.prompt_tokens),
     mean_completion_tokens: mean(r => r.completion_tokens),
     mean_total_tokens: mean(r => r.total_tokens),
@@ -450,6 +505,8 @@ function summarizeArm(arm: Arm, runs: RunResult[]) {
     total_hallucinated_flags: sum(r => r.hallucinated_flag_count),
     mean_wall_clock_ms: mean(r => r.wall_clock_ms),
     mean_inference_ms: mean(r => r.inference_ms),
+    mean_discover_ms: mean(r => r.discover_ms),
+    mean_check_ms: mean(r => r.check_ms),
     mean_mandy_ms: mean(r => r.mandy_ms),
     mean_bash_ms: mean(r => r.bash_ms),
   };
@@ -459,8 +516,8 @@ async function main() {
   const argv = process.argv.slice(2);
   let limit = Infinity;
   let taskFilter: Set<string> | null = null;
-  let arms: Arm[] = ['baseline', 'mandy_primary', 'mandy_fallback'];
-  let outName = 'gemma4_e2b_results.json';
+  let arms: Arm[] = ['baseline', 'harness_mandy_guardrail', 'harness_mandy_full'];
+  let outName = 'gemma4_e2b_v3_guardrail_results.json';
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--limit' && argv[i + 1]) limit = Number(argv[++i]);
@@ -492,7 +549,7 @@ async function main() {
       const res = await runSingle(task, arm, mcp);
       allResults.push(res);
       console.log(
-        `[${arm}] ${task.id.padEnd(24)} ${res.passed ? 'PASS' : 'FAIL'} | turns=${res.turns} tok=${res.total_tokens} (p=${res.prompt_tokens},c=${res.completion_tokens}) bash=${res.bash_calls}(fail=${res.failed_shell_retries},127=${res.cmd_not_found_count},flag=${res.hallucinated_flag_count}) mandy=${res.mandy_calls}(${res.mandy_ms}ms) wall=${res.wall_clock_ms}ms | ${res.verify_reason}`,
+        `[${arm}] ${task.id.padEnd(26)} ${res.passed ? 'PASS' : 'FAIL'}${res.unwanted_mutation ? ' [MUT!]' : ''} | turns=${res.turns} tok=${res.total_tokens} (p=${res.prompt_tokens},c=${res.completion_tokens}) bash=${res.bash_calls}(fail=${res.failed_shell_retries},blk=${res.prevented_bad_execs},127=${res.cmd_not_found_count}) mandy=${res.mandy_calls}(d=${res.discover_ms}ms,c=${res.check_ms}ms) wall=${res.wall_clock_ms}ms | ${res.verify_reason}`,
       );
       if (!psSnapshot) {
         try {

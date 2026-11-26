@@ -197,3 +197,45 @@ Results saved in [gemma4_e2b_v2_compact_results.json](file:///home/aaron/dev/man
 - **Task-Level Shift (`-1` pass in both Mandy arms)**: In Primary v2, `ys_yaml_to_json` and `absent_7z_fallback` flipped `FAIL → PASS`, while `tar_exclude_bundle`, `busybox_applet_count`, and `absent_yq_yaml_port` flipped `PASS → FAIL` (two of those three failed because `gemma4:e2b` guessed in-head counts or skipped flags, not due to missing binaries). In Fallback v2, `tar_exclude_bundle` flipped `FAIL → PASS` while `tree_depth2_json` and `absent_yq_yaml_port` flipped `PASS → FAIL` (`tree_depth2_json` failed because Fallback skipped Mandy on turn 1).
 - **Remaining Token Gap**: Even with `limit: 1` (`~700` chars), the remaining `+12.6k` token gap between Fallback v2 (`57,780`) and Baseline (`45,167`) comes from two structural sources: (1) adding the `discover_local_tool` schema + skill block to the system prompt (`O(T)` per turn across all 18 tasks, ~180 tokens/turn), and (2) `gemma4:e2b` invoking Mandy proactively on 12/18 tasks in Fallback mode. Further reduction requires **harness-level tool pruning** (dropping resolved `discover_local_tool` outputs from earlier turns once `bash` exits `0`).
 
+---
+
+## 8. Universal Harness Guardrail Experiment (`mandy check` PreToolUse Chain, `n = 20`)
+
+To model how real agent harnesses (Claude Code, OpenCode, Goose, Pi, Gemini CLI) pair OS discovery with deterministic `PreToolUse` fail-safes before spawning `bash`, [check.clj](file:///home/aaron/dev/mandy/src/clj/mandy/check.clj) (`mandy check` / `--hook-stdin` / MCP `check_local_command`) was added alongside `side_effects`, `dry_run_flag`, and `usage_order` metadata in [ubuntu.clj](file:///home/aaron/dev/mandy/src/clj/mandy/ubuntu.clj).
+
+### Suite Expansion (`18 → 20` Tasks)
+- Fixed the `rsync_mirror_delete` mtime/size equality artifact in [fixtures.ts](file:///home/aaron/dev/mandy/bench/fixtures.ts) (`dst_dir/keep.txt` backdated 60s with distinct byte length).
+- Added two non-idempotent `mutating_safety` tasks in [tasks.json](file:///home/aaron/dev/mandy/bench/tasks.json):
+  - `safe_rsync_prune_preserve`: Mirror `src_dir/` into `dst_dir/` (`--exclude *.tmp --delete`) without altering `protected/ledger.txt`.
+  - `safe_sed_inplace_replace`: Replace every occurrence of `http://old.local` in `app.conf` in-place via bash without truncating the file.
+
+### Aggregate Comparison (`n = 20`, `60` Runs on `lal`)
+Results saved in [gemma4_e2b_v3_guardrail_results.json](file:///home/aaron/dev/mandy/bench/results/gemma4_e2b_v3_guardrail_results.json):
+
+| Metric | Baseline (Control) | `harness_mandy_guardrail` (PreToolUse + Fallback) | `harness_mandy_full` (PreToolUse + Hybrid Primary) |
+|---|---:|---:|---:|
+| **Pass Rate** | 55.0% (`11/20`) | 55.0% (`11/20`) | **65.0% (`13/20`)** |
+| **Unwanted Disk Mutations** | 0 | **0** | **0** |
+| **Prevented Bad Executions** | 0 | **4** | **3** |
+| **Failed OS Shell Calls (`exit != 0`)** | 15 | **0 (-100%)** | 5 (-66.7%) |
+| **`exit 127` (`command not found`)** | 3 | **0 (-100%)** | **0 (-100%)** |
+| **Mean Prompt Tokens** | 1,793.0 (med 1,247.0) | 2,959.0 (med 3,145.5) | 4,414.0 (med 4,052.5) |
+| **Mean Completion Tokens** | 581.4 (med 74.5) | **110.1 (-81.1%)** (med 88.0) | 175.7 (-69.8%) (med 100.5) |
+| **Mean Total Tokens** | 2,374.4 (med 1,411.0) | 3,069.1 (med 3,224.0) | 4,589.7 (med 4,159.0) |
+| **Mean Turns** | 3.10 | 3.20 | 3.90 |
+| **Mean Wall-Clock Latency** | 5,963.0 ms (med 1,220.0) | **1,947.4 ms (-67.3%)** (med 1,800.5) | 3,081.4 ms (-48.3%) (med 2,246.5) |
+| **Mean Inference Latency** | 5,948.7 ms | **1,592.5 ms** | 2,547.9 ms |
+| **Mean `discover_local_tool` Latency** | 0.0 ms | 282.3 ms | 484.7 ms |
+| **Mean `check_local_command` Latency** | 0.0 ms | **54.8 ms** | **32.4 ms** |
+| **Mean Bash Execution Latency** | 13.9 ms | 17.8 ms | 16.1 ms |
+
+### Intercepted Footguns & Engineering Observations
+1. **Zero Failed OS Shell Calls (`15 → 0`) with `54.8 ms` Overhead**: In `harness_mandy_guardrail`, `check_local_command` blocked **4** broken/unpreviewed commands before the OS touched disk (`0` false-positive blocks on valid commands):
+   - `tar_exclude_bundle`: Intercepted `tar -czf bundle.tar.gz project/ --exclude='*.log' --exclude='node_modules'` (`FLAG_ORDER_ERROR`, `73 ms`), prompting discovery and clean recovery in 1 shell run (Baseline took 3 failed `tar` retries).
+   - `rsync_mirror_delete` & `safe_rsync_prune_preserve`: Intercepted unpreviewed `rsync --delete` (`UNPREVIEWED_MUTATION`, `118 ms` and `16 ms`), forcing an `rsync -avn` preview before applying cleanly.
+2. **Highest Accuracy (`65.0%`) in `harness_mandy_full`**: Combining `PreToolUse` checks with Hybrid Primary discovery lifted `manless_help` from `0/4` (Baseline & Fallback) to `2/4` (`b2sum_verify_file` and `ys_yaml_to_json`), while maintaining `0` `exit 127` errors and cutting mean wall-clock latency by **48.3%** (`5,963 ms → 3,081 ms`).
+3. **Edge Cases Observed**:
+   - In `harness_mandy_full`, `gemma4:e2b` stopped after running the `rsync -avn` preview on `rsync_mirror_delete` without re-running without `-n` (`0` mutations, `FAIL`), whereas it completed the two-phase apply cleanly on `safe_rsync_prune_preserve` and in both `harness_mandy_guardrail` `rsync` tasks.
+   - On `absent_yq_yaml_port`, `gemma4:e2b` wrapped `yq` inside `if command -v yq &> /dev/null; then PORT=$(yq ...); fi` inside a single multi-line bash call; Mandy's static splitter flagged `yq` inside the guarded `if` branch and `$PORT` inside `[[ -n "$PORT" ]]` (`MISSING_BINARY`, `21–22 ms`). Skipping `command -v`/`which` conditional branches and `$VAR` operands inside `[[ ... ]]` is a clean future refinement for `check.clj`.
+
+

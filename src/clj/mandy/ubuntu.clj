@@ -438,15 +438,36 @@
           {:help-flag flag :lines lines :entries usage-entries}
           (recur (rest flags)))))))
 
+(defn- extract-known-long-flags [text]
+  (let [raw-txt (or text "")
+        plain (re-seq #"--[a-zA-Z0-9][a-zA-Z0-9_-]*" raw-txt)
+        bracketed (mapcat (fn [[_ stem]]
+                            [(str "--" stem) (str "--no-" stem)])
+                          (re-seq #"--\[no-\]([a-zA-Z0-9][a-zA-Z0-9_-]*)" raw-txt))]
+    (->> (concat plain bracketed)
+         distinct
+         sort
+         vec)))
+
+(defn- detect-dry-run-flag [flags]
+  (some (fn [{:keys [spec]}]
+          (when (re-find #"(?i)(--dry-run|--simulate|--just-print)" (or spec ""))
+            spec))
+        flags))
+
 (defn extract-interface
-  "Extract summary and structured flags for a verified binary, backed by (realpath, mtime) cache."
+  "Extract summary, structured flags, and safety metadata for a verified binary, backed by (realpath, mtime) cache."
   [exec-info pkg-summary strategy cache-atom]
   (let [{:keys [cmd realpath mtime]} exec-info
         cached (get @cache-atom realpath)]
-    (if (and cached (= (get cached "mtime") mtime))
+    (if (and cached
+             (= (get cached "schema_version") 2)
+             (= (get cached "mtime") mtime))
       {:interface_source (get cached "interface_source")
        :summary (get cached "summary")
        :flags (mapv (fn [f] {:spec (get f "spec") :desc (get f "desc")}) (get cached "flags"))
+       :known_long_flags (vec (get cached "known_long_flags"))
+       :dry_run_flag (get cached "dry_run_flag")
        :cache_hit true}
       (let [help-ms (or (:help_timeout_ms strategy) 1500)
             man-w-sec (run-proc ["man" "-w" "-S" (str/join ":" (:man_sections strategy)) cmd] {:timeout-ms 1000})
@@ -480,14 +501,22 @@
                     (seq man-flags) man-flags
                     (seq (:entries help-res)) (:entries help-res)
                     :else [])
-            record {"mtime" mtime
-                    "interface_source" interface-source
-                    "summary" summary
-                    "flags" (mapv (fn [{:keys [spec desc]}] {"spec" spec "desc" desc}) flags)}]
+            full-text (str (or man-rendered "") "\n" (str/join "\n" (or (:lines help-res) [])))
+            known-long-flags (extract-known-long-flags full-text)
+            dry-run-flag (detect-dry-run-flag flags)
+            record (cond-> {"schema_version" 2
+                            "mtime" mtime
+                            "interface_source" interface-source
+                            "summary" summary
+                            "flags" (mapv (fn [{:keys [spec desc]}] {"spec" spec "desc" desc}) flags)
+                            "known_long_flags" known-long-flags}
+                     dry-run-flag (assoc "dry_run_flag" dry-run-flag))]
         (swap! cache-atom assoc realpath record)
         {:interface_source interface-source
          :summary summary
          :flags flags
+         :known_long_flags known-long-flags
+         :dry_run_flag dry-run-flag
          :cache_hit false}))))
 
 ;; --- Candidate Gathering, Ranking & Flag Selection ---
@@ -718,13 +747,20 @@
                               (take 1 sorted-enriched)))
         ranked (take eff-limit filtered-enriched)
         results-map (reduce (fn [acc {:keys [cmd exec prov iface]}]
-                              (let [entry (cond-> {:binary (:realpath exec)}
+                              (let [safety (get-in strat [:command_safety (clojure.core/keyword cmd)])
+                                    side-effects (:side_effects safety)
+                                    usage-order (:usage_order safety)
+                                    dry-run (:dry_run_flag iface)
+                                    entry (cond-> {:binary (:realpath exec)}
                                             (:package prov) (assoc :package (:package prov))
                                             true (assoc :manager (:manager prov))
                                             (:version prov) (assoc :version (:version prov))
                                             true (assoc :interface_source (:interface_source iface)
-                                                        :summary (:summary iface)
-                                                        :flags (select-relevant-flags (:flags iface)
+                                                        :summary (:summary iface))
+                                            side-effects (assoc :side_effects side-effects)
+                                            dry-run (assoc :dry_run_flag dry-run)
+                                            usage-order (assoc :usage_order usage-order)
+                                            true (assoc :flags (select-relevant-flags (:flags iface)
                                                                                       (:primary q-info)
                                                                                       max-flags
                                                                                       max-desc)))]

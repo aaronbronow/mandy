@@ -108,3 +108,61 @@ weights:
   has_man_page: 10
   dpkg_managed: 8
   standard_usr_bin: 5
+
+blocked_package_managers:
+  - apt
+  - apt-get
+  - dpkg
+  - snap
+  - pip
+  - pip3
+
+command_safety:
+  rm:
+    side_effects: destructive
+    usage_order: "Preview target paths before recursive removal."
+  dd:
+    side_effects: destructive
+  mv:
+    side_effects: mutating
+    usage_order: "Use -n or -i to avoid silent overwrites."
+  chmod:
+    side_effects: mutating
+  chown:
+    side_effects: mutating
+  rsync:
+    side_effects: mutating
+    usage_order: "Trailing slash on SRC/ copies contents; preview --delete with --dry-run (-n) first."
+  tar:
+    side_effects: writes_files
+    usage_order: "Place options like --exclude BEFORE source paths; compression flag must match archive extension (.gz -> -z, .zst -> --zstd)."
+  find:
+    side_effects: read_only_unless_exec_or_delete
+    usage_order: "Paths precede expressions; preview matches before -delete or -exec."
+  sed:
+    side_effects: read_only_unless_inplace
+    usage_order: "Omit -i to preview stdout before in-place edits."
+  ffmpeg:
+    side_effects: writes_files
+  zstd:
+    side_effects: writes_files
+  sqlite3:
+    side_effects: read_only_unless_write_sql
+  pdfunite:
+    side_effects: writes_files
+  rg:
+    side_effects: read_only
+  grep:
+    side_effects: read_only
+  jq:
+    side_effects: read_only
+  b2sum:
+    side_effects: read_only
+  ys:
+    side_effects: read_only
+  tree:
+    side_effects: read_only
+  busybox:
+    side_effects: read_only
+  pdftotext:
+    side_effects: read_only

@@ -5,6 +5,7 @@
             [clojure.java.io :as io]
             [clojure.java.shell :refer [sh]]
             [mandy.ubuntu :as ubuntu]
+            [mandy.check :as check]
             [mandy.mcp :as mcp])
   (:import [java.lang ProcessBuilder]
            [java.lang ProcessBuilder$Redirect])
@@ -69,6 +70,7 @@
   (println "  mandy <command>                 Start interactive TUI")
   (println "  mandy <command> | cat           Output raw YAMLScript data")
   (println "  mandy discover [opts]           Live Ubuntu tool discovery (dpkg + man + --help)")
+  (println "  mandy check [opts] <cmd>        PreToolUse guardrail check (exit 0 allow, 2 block)")
   (println "  mandy mcp                       Start stdio JSON-RPC 2.0 MCP server")
   (println "  mandy -k <keyword>              CLI Deep Search (Agent-First Ubuntu YAML)")
   (println "  mandy -K <keyword>              TUI Deep Search across all manuals")
@@ -117,6 +119,20 @@
 
           :else
           (recur (rest xs) (update opts :intent #(str % " " a))))))))
+
+(defn- parse-check-opts [args]
+  (loop [xs args
+         opts {:cmd-parts [] :json? false :hook-stdin? false :strict-preview? true :block-pkg-installs? true :help? false}]
+    (if (empty? xs)
+      (assoc opts :command (str/join " " (:cmd-parts opts)))
+      (let [a (first xs)]
+        (cond
+          (#{"-h" "--help"} a) (recur (rest xs) (assoc opts :help? true))
+          (= "--json" a) (recur (rest xs) (assoc opts :json? true))
+          (= "--hook-stdin" a) (recur (rest xs) (assoc opts :hook-stdin? true))
+          (= "--no-strict-preview" a) (recur (rest xs) (assoc opts :strict-preview? false))
+          (= "--allow-pkg-installs" a) (recur (rest xs) (assoc opts :block-pkg-installs? false))
+          :else (recur (rest xs) (update opts :cmd-parts conj a)))))))
 
 (defn run-discovery [command args is-debug is-strip is-tty]
   (let [man-cmd (let [file (io/file command)
@@ -205,7 +221,38 @@
           (println (json/generate-string res))
           (print (ubuntu/format-discovery-yaml res)))
         (flush)
-        (System/exit 0))))
+        (System/exit 0)))
+
+    (= "check" (first args))
+    (let [{:keys [command json? hook-stdin? strict-preview? block-pkg-installs? help?]} (parse-check-opts (rest args))]
+      (when help?
+        (display-help)
+        (System/exit 0))
+      (let [stdin-payload (when hook-stdin?
+                            (try
+                              (let [raw (slurp *in*)]
+                                (when-not (str/blank? raw)
+                                  (json/parse-string raw true)))
+                              (catch Exception _ nil)))
+            tool-name (:tool_name stdin-payload)
+            hook-cmd (or (get-in stdin-payload [:tool_input :command])
+                         (:command stdin-payload))
+            target-cmd (if hook-stdin? hook-cmd command)]
+        (when (and hook-stdin? tool-name
+                   (not (contains? #{"Bash" "bash" "run_shell_command" "shell"} (str tool-name))))
+          (System/exit 0))
+        (when (str/blank? target-cmd)
+          (System/exit 0))
+        (let [res (check/check-command target-cmd {:strict-preview? strict-preview?
+                                                   :block-pkg-installs? block-pkg-installs?})
+              blocked? (= "block" (:status res))]
+          (cond
+            json? (do (println (json/generate-string res)) (flush))
+            (and hook-stdin? blocked?) (binding [*out* *err*]
+                                         (println (check/format-check-text res))
+                                         (flush))
+            (not hook-stdin?) (do (println (check/format-check-text res)) (flush)))
+          (System/exit (if blocked? 2 0))))))
 
   (let [is-help (some #{"--help" "-h"} args)
         is-debug (some #{"--debug" "-d"} args)
