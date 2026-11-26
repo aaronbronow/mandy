@@ -7,12 +7,15 @@
            [java.util.regex Pattern]))
 
 (def ^:private shell-builtins
-  #{"." ":" "[" "[[" "]]" "]" "alias" "bg" "break" "builtin" "case" "cd" "command" "continue"
-    "declare" "do" "done" "echo" "elif" "else" "enable" "esac" "eval" "exec" "exit"
-    "export" "false" "fg" "fi" "for" "function" "getopts" "hash" "if" "in" "jobs"
-    "kill" "let" "local" "logout" "printf" "pwd" "read" "readonly" "return" "select"
-    "set" "shift" "shopt" "source" "test" "then" "time" "trap" "true" "type" "typeset"
-    "ulimit" "umask" "unalias" "unset" "until" "wait" "while"})
+  #{"." ":" "[" "[[" "]]" "]" "{" "}" "(" ")"
+    "alias" "bg" "break" "builtin" "caller" "case" "cd" "command" "compgen" "complete"
+    "compopt" "continue" "coproc" "declare" "dirs" "disown" "do" "done" "echo" "elif"
+    "else" "enable" "esac" "eval" "exec" "exit" "export" "false" "fc" "fg" "fi" "for"
+    "function" "getopts" "hash" "help" "history" "if" "in" "jobs" "kill" "let" "local"
+    "logout" "mapfile" "popd" "printf" "pushd" "pwd" "read" "readarray" "readonly"
+    "return" "select" "set" "shift" "shopt" "source" "suspend" "test" "then" "time"
+    "times" "trap" "true" "type" "typeset" "ulimit" "umask" "unalias" "unset" "until"
+    "wait" "while"})
 
 (def ^:private cli-long-flag-checked
   #{"rg" "grep" "tar" "rsync" "zstd" "b2sum" "tree" "find" "ys" "busybox"

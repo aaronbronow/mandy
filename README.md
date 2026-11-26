@@ -34,6 +34,7 @@ make all
 - **`src/index.ts`**: The "Thin" TUI (TypeScript). Consumes pre-parsed data from the Clojure wrapper via temporary files.
 - **`skills/mandy-ubuntu-discovery/SKILL.md`**: Portable agent skill and Pi/Goose/OpenCode MCP setup.
 - **`BENCHMARK_UBUNTU_GEMMA.md`**: Empirical `gemma4:e2b` and `functiongemma` A/B benchmark report.
+- **`MODEL_COMPATIBILITY.md`**: Cloud vs. local model adoption tracker (`gemini-3.8-flash`, `gemini-3.1-pro-preview`, `gemma4:e2b`, `functiongemma`).
 - **`Makefile`**: Orchestrates the multi-language build and test pipeline.
 - **`.mandyrc`**: The shell bridge for prompt injection.
 
@@ -113,8 +114,9 @@ Mandy compiles to a **GraalVM native binary** (`make mandy` → zero JVM runtime
 
 See [skills/mandy-ubuntu-discovery/SKILL.md](./skills/mandy-ubuntu-discovery/SKILL.md) for drop-in MCP, `preflight`, and `PreToolUse` hook configs.
 
-### Benchmark Highlights (`gemma4:e2b` on `lal`, 6 GB VRAM)
-Evaluated across 18-task (`54`-run) and expanded 20-task (`60`-run / `80`-run) Ubuntu CLI suites (`num_ctx=8192`, `100%` GPU offload) — full results in [BENCHMARK_UBUNTU_GEMMA.md](./BENCHMARK_UBUNTU_GEMMA.md):
+### Benchmark Highlights (`gemma4:e2b` on `lal` & Cloud `gemini-3.8-flash`)
+Evaluated across 18-task (`54`-run) and expanded 20-task (`60`-run / `80`-run) Ubuntu CLI suites locally (`num_ctx=8192`, `100%` GPU offload) and across `60` runs on Google `gemini-3.8-flash` — full results in [BENCHMARK_UBUNTU_GEMMA.md](./BENCHMARK_UBUNTU_GEMMA.md) and [MODEL_COMPATIBILITY.md](./MODEL_COMPATIBILITY.md):
+- **Cloud Agentic Eval (`gemini-3.8-flash`, `n=20`)**: `v4_hook_preflight` lifted pass rate from **75.0% (`15/20`)** to **85.0% (`17/20`)**, cut total tokens by **`-11.9%` (`315,180 → 277,554`)** and thought tokens by **`-10.5%`**, and ran **`-9.3%` faster** (`33.0 s → 29.9 s`), whereas exposing manual MCP (`v4_mcp_terse`) added `+1.9%` tokens with no accuracy gain.
 - **v4 Native Zero-Schema Hooks + Preflight (`n=20`, target ≤ +15% tokens)**: Using the compiled GraalVM native binary (`81.4 ms` init, `0.37 ms` L2 `discover` hit, `0.37–0.52 ms` warm `check`), `v4_hook_preflight` **beat Baseline total tokens by `-6.4%` (`44,398` vs. `47,437`)**, lifted pass rate from **55.0% (`11/20`)** to **65.0% (`13/20`)**, kept **0 unwanted mutations** and **0 `exit 127`** errors, and ran **2.57× faster** (`6.27 s → 2.44 s` mean wall clock).
 - **Guardrail + Hybrid Discovery (`n=20`, v3)**: Pairing `mandy check` pre-execution hooks with Hybrid Primary discovery lifted pass rate from **55.0% (`11/20`)** to **65.0% (`13/20`)** with **0 unwanted mutations**, **0 `exit 127`** errors, and **48.3%** faster mean wall-clock latency (`5.96 s → 3.08 s`).
 - **PreToolUse Safety Only (`n=20`, v3)**: `harness_mandy_guardrail` cut failed OS shell calls **100%** (`15 → 0`), reduced completion tokens **81.1%** (`581 → 110`), and ran **3.06× faster** (`5.96 s → 1.95 s`).

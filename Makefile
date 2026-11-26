@@ -70,6 +70,8 @@ test-ubuntu: mandy
 	./mandy check --no-strict-preview "rg -i -n -t py retry_limit src/"
 	./mandy check --no-strict-preview "if command -v yq >/dev/null 2>&1; then yq '.port' app.yaml; fi"
 	./mandy check --no-strict-preview "command -v exiftool >/dev/null 2>&1 || echo UNAVAILABLE"
+	./mandy check --no-strict-preview 'printf "abc" | { read -r x; echo "$$x"; }'
+	./mandy check --no-strict-preview 'history | tail -n 5'
 	@./mandy check "tar -czf bundle.tar.gz project/ --exclude='*.log'" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
 	@./mandy check "rsync -av --delete src_dir/ dst_dir/" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
 	@./mandy check "rsync -av src/ dst/ && find dst/ -type f -print0 | xargs -0 rm" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
