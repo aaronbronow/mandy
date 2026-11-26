@@ -1,0 +1,110 @@
+[
+  {
+    "id": "rg_py_retry",
+    "category": "dpkg_specialized",
+    "expected_tool": "rg",
+    "prompt": "Search inside src/ recursively ONLY in .py files, case-insensitively, for the literal text 'retry_limit'. Write matching lines including relative file path and line number (e.g. src/foo.py:3:...) to out.txt."
+  },
+  {
+    "id": "jq_error_latency",
+    "category": "dpkg_specialized",
+    "expected_tool": "jq",
+    "prompt": "From events.json (a JSON array of objects), select entries where status == \"error\" and latency_ms > 200, sort them by latency_ms descending, and write compact JSON objects containing only {\"id\": ..., \"service\": ...} one per line (JSONL) to errors.jsonl."
+  },
+  {
+    "id": "ffmpeg_extract_frame",
+    "category": "dpkg_specialized",
+    "expected_tool": "ffmpeg",
+    "prompt": "Extract a single PNG video frame at timestamp 0.5 seconds (t=0.5s) from clip.mp4 and save it to frame.png."
+  },
+  {
+    "id": "sqlite3_csv_export",
+    "category": "dpkg_specialized",
+    "expected_tool": "sqlite3",
+    "prompt": "Query inventory.db (table items with columns sku, name, stock) for rows where stock < 10 ordered by sku ASC, and write the output as CSV with a header row to low_stock.csv."
+  },
+  {
+    "id": "poppler_pdf_text",
+    "category": "dpkg_specialized",
+    "expected_tool": "pdftotext",
+    "prompt": "Extract all readable text from report.pdf and save it to report.txt using an installed local PDF CLI tool."
+  },
+  {
+    "id": "poppler_pdf_merge",
+    "category": "dpkg_specialized",
+    "expected_tool": "pdfunite",
+    "prompt": "Merge part1.pdf and part2.pdf in order into a single PDF file named combined.pdf using an installed local PDF CLI tool."
+  },
+  {
+    "id": "zstd_level9_keep",
+    "category": "ubuntu_core_sys",
+    "expected_tool": "zstd",
+    "prompt": "Compress payload.txt using zstd at compression level 9 while keeping the original payload.txt file intact, producing payload.txt.zst."
+  },
+  {
+    "id": "tar_exclude_bundle",
+    "category": "ubuntu_core_sys",
+    "expected_tool": "tar",
+    "prompt": "Create a gzip-compressed tar archive named bundle.tar.gz of the project/ directory, excluding all *.log files and all node_modules directories."
+  },
+  {
+    "id": "rsync_mirror_delete",
+    "category": "ubuntu_core_sys",
+    "expected_tool": "rsync",
+    "prompt": "Mirror the contents of src_dir/ into dst_dir/ while excluding *.tmp files and deleting any extraneous/stale files in dst_dir/ that are not present in src_dir/."
+  },
+  {
+    "id": "tree_depth2_json",
+    "category": "ubuntu_core_sys",
+    "expected_tool": "tree",
+    "prompt": "Generate a JSON directory tree listing of project/ limited to maximum depth 2 and write it to tree.json."
+  },
+  {
+    "id": "b2sum_256bit",
+    "category": "manless_help",
+    "expected_tool": "b2sum",
+    "prompt": "Compute a 256-bit BLAKE2b checksum of artifact.bin using b2sum and write just the 64-character lowercase hex digest to digest.txt."
+  },
+  {
+    "id": "b2sum_verify_file",
+    "category": "manless_help",
+    "expected_tool": "b2sum",
+    "prompt": "Verify the file checksums listed in checksums.b2 using b2sum. Write 'VALID' if all checksums match, or 'INVALID' if any check fails, to verify.txt."
+  },
+  {
+    "id": "ys_yaml_to_json",
+    "category": "manless_help",
+    "expected_tool": "ys",
+    "prompt": "Evaluate and convert config.yaml (a !yamlscript/v0/data file) to JSON and write it to config.json using the locally installed ys CLI tool."
+  },
+  {
+    "id": "busybox_applet_count",
+    "category": "manless_help",
+    "expected_tool": "busybox",
+    "prompt": "Count how many built-in applets the locally installed busybox binary supports and write just the integer count to applet_count.txt."
+  },
+  {
+    "id": "absent_fd_find_json",
+    "category": "absent_graceful",
+    "expected_tool": "fd",
+    "prompt": "Find all .json files inside project/ (using fd if installed, otherwise an installed local equivalent) and write their sorted relative paths, one per line, to json_files.txt."
+  },
+  {
+    "id": "absent_yq_yaml_port",
+    "category": "absent_graceful",
+    "expected_tool": "yq",
+    "prompt": "Extract the integer value of database.port from app.yaml (using yq if installed, otherwise an installed local tool) and write just the port integer to port.txt."
+  },
+  {
+    "id": "absent_exiftool_report",
+    "category": "absent_graceful",
+    "expected_tool": "exiftool",
+    "prompt": "Strip EXIF metadata from photo.jpg using exiftool. Do NOT install any packages. If exiftool is not installed locally, write 'UNAVAILABLE: exiftool' to status.txt."
+  },
+  {
+    "id": "absent_7z_fallback",
+    "category": "absent_graceful",
+    "expected_tool": "7z",
+    "prompt": "Archive the data/ directory using 7z into data.7z; if 7z is not installed locally, create data.tar.zst (or data.tar.gz) using an installed archive tool and write the tool name you used to method.txt."
+  }
+]

@@ -37,15 +37,15 @@ mandy: $(UBER-JAR) $(GRAALVM)
 	  --no-fallback \
 	  --initialize-at-build-time \
 	  -H:+UnlockExperimentalVMOptions \
-	  -H:IncludeResources=base.ys \
+	  -H:IncludeResources="(base|ubuntu_discovery)\\.ys" \
 	  -H:+ReportExceptionStackTraces
 	@echo "Created mandy native binary"
 
-$(UBER-JAR): $(CLOJURE) src/clj/mandy/main.clj plugins/base.clj plugins/base.ys
+$(UBER-JAR): $(CLOJURE) src/clj/mandy/strategy.clj src/clj/mandy/ubuntu.clj src/clj/mandy/mcp.clj src/clj/mandy/main.clj plugins/base.clj plugins/base.ys plugins/ubuntu_discovery.ys
 	rm -rf target/uber target/classes
 	mkdir -p target/uber target/classes
 	cp plugins/* target/classes/
-	clojure -M -e "(binding [*compile-path* \"target/classes\"] (compile 'mandy.main))"
+	clojure -M -e "(binding [*compile-path* \"target/classes\"] (compile 'mandy.strategy) (compile 'mandy.ubuntu) (compile 'mandy.mcp) (compile 'mandy.main))"
 	for j in $$(clojure -Spath | tr ':' '\n' | grep '\.jar$$'); do \
 	  (cd target/uber && jar xf "$$j"); \
 	done
@@ -60,7 +60,12 @@ clean::
 	rm -rf target
 	rm -f mandy
 
-test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search
+test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search test-ubuntu
+
+test-ubuntu: $(UBER-JAR)
+	./bin/mandy discover --intent "case insensitive regex search by file type" --keyword rg
+	./bin/mandy discover --intent "compute 256-bit blake2 checksum" --keyword b2sum
+	./bin/mandy discover --intent "find json files" --keyword fd
 
 test-debug: $(CLOJURE)
 	clojure -M -m mandy.main pwd --debug

@@ -6,7 +6,8 @@ target
 .cache
 /mandy
 .mandy_payload_path
-/bin
+/bin/*
+!/bin/mandy
 *.jar
 .zcompdump*
 src/*.js

@@ -1,0 +1,247 @@
+{
+  "meta": {
+    "model": "functiongemma",
+    "ollama_host": "http://lal:11434",
+    "ps_snapshot": {
+      "models": [
+        {
+          "name": "functiongemma:latest",
+          "model": "functiongemma:latest",
+          "size": 323831725,
+          "digest": "7c19b650567acfb1bee50d12bb286370e8a54d8877f6a0ecfd01f8c8fdc223bb",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "gemma3",
+            "families": [
+              "gemma3"
+            ],
+            "parameter_size": "268.10M",
+            "quantization_level": "Q8_0"
+          },
+          "expires_at": "2026-11-25T21:14:17.4970133-08:00",
+          "size_vram": 323831725,
+          "context_length": 4096,
+          "runner": "llamacpp"
+        },
+        {
+          "name": "gemma4:e2b",
+          "model": "gemma4:e2b",
+          "size": 404215561,
+          "digest": "b37049369adfe3d2b653af0ab301a062ca5cbe96ace6aa0d3f2559ee9b563fc2",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "gemma4",
+            "families": [
+              "gemma4"
+            ],
+            "parameter_size": "4.6B",
+            "quantization_level": "Q4_K_M"
+          },
+          "expires_at": "2026-11-25T21:14:15.8679386-08:00",
+          "size_vram": 404215561,
+          "context_length": 8192,
+          "runner": "llamacpp"
+        }
+      ]
+    }
+  },
+  "summary": {
+    "total": 18,
+    "routed_discover": 0,
+    "routed_bash": 4,
+    "no_tool": 14,
+    "mean_ms": 3773.9
+  },
+  "results": [
+    {
+      "task_id": "rg_py_retry",
+      "category": "dpkg_specialized",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with generating shell commands or text-based file traversal requests. My current capabilities are limite",
+      "prompt_tokens": 258,
+      "completion_tokens": 34,
+      "ms": 1284
+    },
+    {
+      "task_id": "jq_error_latency",
+      "category": "dpkg_specialized",
+      "routed_tool": "bash",
+      "arguments": {
+        "command": " echo \"ERROR: \" & $latency_ms; exit; \\n\""
+      },
+      "raw_content": null,
+      "prompt_tokens": 269,
+      "completion_tokens": 3827,
+      "ms": 15859
+    },
+    {
+      "task_id": "ffmpeg_extract_frame",
+      "category": "dpkg_specialized",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I apologize, but I cannot assist with extracting video frames or saving them to file. My current capabilities are limite",
+      "prompt_tokens": 237,
+      "completion_tokens": 45,
+      "ms": 234
+    },
+    {
+      "task_id": "sqlite3_csv_export",
+      "category": "dpkg_specialized",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I apologize, but I cannot assist with querying inventory data or writing CSV output. My current capabilities are limited",
+      "prompt_tokens": 248,
+      "completion_tokens": 44,
+      "ms": 227
+    },
+    {
+      "task_id": "poppler_pdf_text",
+      "category": "dpkg_specialized",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I apologize, but I cannot assist with extracting text from PDF documents or saving it to files. My current capabilities ",
+      "prompt_tokens": 226,
+      "completion_tokens": 47,
+      "ms": 239
+    },
+    {
+      "task_id": "poppler_pdf_merge",
+      "category": "dpkg_specialized",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with merging or creating PDF files. My current capabilities are limited to assisting with tool discovery",
+      "prompt_tokens": 232,
+      "completion_tokens": 37,
+      "ms": 196
+    },
+    {
+      "task_id": "zstd_level9_keep",
+      "category": "ubuntu_core_sys",
+      "routed_tool": "bash",
+      "arguments": {
+        "command": " compress payload.txt using zstd at compression level 9 while keeping the original payload.txt file intact"
+      },
+      "raw_content": null,
+      "prompt_tokens": 233,
+      "completion_tokens": 3863,
+      "ms": 16155
+    },
+    {
+      "task_id": "tar_exclude_bundle",
+      "category": "ubuntu_core_sys",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with creating or modifying software archives. My current capabilities are limited to assisting with tool",
+      "prompt_tokens": 234,
+      "completion_tokens": 41,
+      "ms": 214
+    },
+    {
+      "task_id": "rsync_mirror_delete",
+      "category": "ubuntu_core_sys",
+      "routed_tool": "bash",
+      "arguments": {
+        "command": " mirror current_directory into dst_dir/ while excluding *.tmp files and deleting extraneous/stale files in dst_dir/ that are not present in src_dir/"
+      },
+      "raw_content": null,
+      "prompt_tokens": 243,
+      "completion_tokens": 3853,
+      "ms": 16076
+    },
+    {
+      "task_id": "tree_depth2_json",
+      "category": "ubuntu_core_sys",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I apologize, but I cannot assist with generating or writing JSON tree listings. My current capabilities are limited to c",
+      "prompt_tokens": 226,
+      "completion_tokens": 46,
+      "ms": 236
+    },
+    {
+      "task_id": "b2sum_256bit",
+      "category": "manless_help",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with generating shell commands or writing text. My current capabilities are limited to assisting with to",
+      "prompt_tokens": 241,
+      "completion_tokens": 30,
+      "ms": 160
+    },
+    {
+      "task_id": "b2sum_verify_file",
+      "category": "manless_help",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with writing or verifying file checksums. My current capabilities are limited to assisting with tool dis",
+      "prompt_tokens": 244,
+      "completion_tokens": 30,
+      "ms": 164
+    },
+    {
+      "task_id": "ys_yaml_to_json",
+      "category": "manless_help",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I apologize, but I cannot assist with this request. My current capabilities are limited to assisting with command-line t",
+      "prompt_tokens": 238,
+      "completion_tokens": 43,
+      "ms": 212
+    },
+    {
+      "task_id": "busybox_applet_count",
+      "category": "manless_help",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with writing shell commands or counting applets. My current capabilities are limited to assisting with t",
+      "prompt_tokens": 232,
+      "completion_tokens": 31,
+      "ms": 168
+    },
+    {
+      "task_id": "absent_fd_find_json",
+      "category": "absent_graceful",
+      "routed_tool": "bash",
+      "arguments": {
+        "command": " find . -type f project/ (using fd if installed)"
+      },
+      "raw_content": null,
+      "prompt_tokens": 241,
+      "completion_tokens": 3855,
+      "ms": 15913
+    },
+    {
+      "task_id": "absent_yq_yaml_port",
+      "category": "absent_graceful",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with this request. My current capabilities are limited to assisting with command-line tool discovery and",
+      "prompt_tokens": 239,
+      "completion_tokens": 38,
+      "ms": 206
+    },
+    {
+      "task_id": "absent_exiftool_report",
+      "category": "absent_graceful",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with this request. My current capabilities are limited to assisting with command-line tool discovery and",
+      "prompt_tokens": 242,
+      "completion_tokens": 34,
+      "ms": 175
+    },
+    {
+      "task_id": "absent_7z_fallback",
+      "category": "absent_graceful",
+      "routed_tool": null,
+      "arguments": null,
+      "raw_content": "I cannot assist with creating or modifying installation media, such as `.7z` or `.tar.gz` files. My current capabilities",
+      "prompt_tokens": 259,
+      "completion_tokens": 43,
+      "ms": 212
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+!yamlscript/v0/data
+
+# Ubuntu Local Tool Discovery Strategy for Mandy
+# Evaluated by mandy.strategy via `ys -J` (with clj-yaml fallback)
+
+man_sections: [1, 6, 8]
+max_candidates: 5
+exact_binary_limit: 1
+default_limit: 2
+max_flags_per_tool: 5
+max_flag_desc_chars: 75
+min_candidate_score: 40
+help_timeout_ms: 1500
+man_deep_timeout_ms: 2500
+cache_rel_path: ".cache/mandy/ubuntu-discovery-cache.json"
+
+path_priority:
+  - /usr/bin
+  - /bin
+  - /usr/sbin
+  - /sbin
+  - /usr/local/bin
+
+stopwords:
+  - the
+  - a
+  - an
+  - as
+  - at
+  - be
+  - by
+  - if
+  - is
+  - it
+  - no
+  - so
+  - to
+  - for
+  - of
+  - in
+  - on
+  - with
+  - using
+  - file
+  - files
+  - command
+  - tool
+  - cli
+  - ubuntu
+  - linux
+  - how
+  - and
+  - or
+  - from
+  - into
+  - all
+  - get
+  - list
+  - show
+  - run
+  - make
+  - use
+  - check
+  - create
+  - convert
+  - extract
+
+intent_synonyms:
+  pdf: [pdf, poppler, pdftotext, pdfunite, pdfinfo, pdfimages]
+  merge: [pdfunite, paste, join, cat, tar]
+  json: [jq, json, python3]
+  yaml: [ys, yaml, python3]
+  yq: [ys, python3, yaml]
+  fd: [find, rg, grep]
+  search: [rg, ripgrep, grep, find]
+  regex: [rg, grep, sed, gawk, awk]
+  video: [ffmpeg, ffprobe]
+  audio: [ffmpeg, ffprobe]
+  frame: [ffmpeg]
+  compress: [zstd, gzip, tar, xz, zip]
+  archive: [tar, zstd, gzip, xz, zip, unzip]
+  checksum: [b2sum, sha256sum, md5sum, cksum]
+  blake2: [b2sum]
+  hash: [b2sum, sha256sum, md5sum]
+  sqlite: [sqlite3]
+  database: [sqlite3]
+  sync: [rsync]
+  mirror: [rsync]
+  tree: [tree, find]
+  directory: [tree, find, ls]
+  socket: [ss, lsof, tcpdump]
+  port: [ss, lsof, tcpdump]
+  network: [ss, ip, curl, wget, tcpdump]
+  busybox: [busybox]
+  applet: [busybox]
+  exif: [exiftool, ffmpeg]
+  7z: [7z, tar, zstd, gzip]
+
+weights:
+  exact_binary_match: 120
+  binary_prefix_match: 60
+  package_name_match: 50
+  apropos_match: 40
+  dpkg_description_match: 30
+  man_deep_match: 25
+  intent_token_in_summary: 15
+  intent_token_in_flags: 12
+  has_man_page: 10
+  dpkg_managed: 8
+  standard_usr_bin: 5

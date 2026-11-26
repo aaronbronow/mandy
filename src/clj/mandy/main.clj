@@ -3,46 +3,17 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.java.shell :refer [sh]])
+            [clojure.java.shell :refer [sh]]
+            [mandy.ubuntu :as ubuntu]
+            [mandy.mcp :as mcp])
   (:import [java.lang ProcessBuilder]
            [java.lang ProcessBuilder$Redirect])
   (:gen-class))
 
-(defn heading? [line]
-  (re-matches #"[A-Z][A-Z0-9()\s]*[A-Z0-9)]" (str/trim line)))
-
-(defn sanitize [line]
-  (-> line
-      (str/replace "\t" " ")
-      (str/replace #"\s+" " ")
-      str/trim))
-
-(defn strip-troff [line]
-  (-> line
-      (str/replace #"^\.[A-Z]{1,10}(\s+|$)" "") ; Strip leading capital macros (e.g., .PP, .INDENT, .TP)
-      (str/replace #"^\.[a-z]{1,2}(\s+|$)" "")  ; Strip leading lowercase macros (e.g., .in, .br, .sp)
-      (str/replace #"^\.\s*$" "")               ; Strip standalone dots
-      (str/replace #"\.IX\s+.*" "")             ; Strip indexing macros and their entire line
-      (str/replace #"\.[IB][IRP]?\s+" "")       ; Strip common mdoc/man font macros (inline-style)
-      (str/replace #"\.(It|Ic|Ar|Fl)\s+" "")   ; Strip mdoc .It, .Ic, .Ar, .Fl
-      (str/replace #"\\f[BIRP]" "")             ; Strip inline font changes \fB, \fI, etc.
-      (str/replace #"\\s[+-]?\d+" "")           ; Strip inline size changes \sN, \s+N
-      (str/replace #"\\\*(\([a-zA-Z0-9]{2}|\[[a-zA-Z0-9]+\]|.)" "") ; Strip \* interpolation
-      (str/replace #"\\n(\([a-zA-Z0-9]{2}|\[[a-zA-Z0-9]+\]|.)" "") ; Strip \n interpolation
-      (str/replace #"\\&" "")                   ; Strip non-printing &
-      (str/replace #"\\\(.." "")               ; Strip complex characters like \(bu
-      (str/replace #"\\." "")))                 ; Strip remaining backslash escapes
-
-(defn parse-man [indexed-lines]
-  (reduce (fn [acc [idx line]]
-            (if (heading? line)
-              (conj acc {(str/trim line) []})
-              (let [last-idx (dec (count acc))
-                    heading (first (keys (nth acc last-idx)))
-                    lm {:originalIndex idx :text line}]
-                (update-in acc [last-idx heading] conj lm))))
-          [{"PREFACE" []}]
-          indexed-lines))
+(def heading? ubuntu/heading?)
+(def sanitize ubuntu/sanitize)
+(def strip-troff ubuntu/strip-troff)
+(def parse-man ubuntu/parse-man)
 
 (defn generate-yaml [structured-data sanitized?]
   (let [header "!yamlscript/v0/data\n"
@@ -92,14 +63,22 @@
          distinct)))
 
 (defn display-help []
-  (println "🌿 Mandy - Manual Discovery Tool (Beta 0.1)")
+  (println "🌿 Mandy - Manual Discovery Tool (Beta 0.2 Ubuntu)")
   (println "")
   (println "Usage:")
   (println "  mandy <command>                 Start interactive TUI")
   (println "  mandy <command> | cat           Output raw YAMLScript data")
-  (println "  mandy -k <keyword>              CLI Deep Search across all manuals")
+  (println "  mandy discover [opts]           Live Ubuntu tool discovery (dpkg + man + --help)")
+  (println "  mandy mcp                       Start stdio JSON-RPC 2.0 MCP server")
+  (println "  mandy -k <keyword>              CLI Deep Search (Agent-First Ubuntu YAML)")
   (println "  mandy -K <keyword>              TUI Deep Search across all manuals")
   (println "  mandy <file.md>                 Render local Markdown via pandoc")
+  (println "")
+  (println "Ubuntu Discover Options:")
+  (println "  -i, --intent <text>       Natural-language intent for tool discovery")
+  (println "  -k, --keyword <term>      Optional binary name or topic keyword")
+  (println "  -n, --limit <N>           Max verified candidates (1-5, default 3)")
+  (println "  --json                    Output results as JSON")
   (println "")
   (println "Discovery Options:")
   (println "  -c, --context <string>    Search for command variants matching <string>")
@@ -110,6 +89,34 @@
   (println "  -d, --debug               Output raw YAMLScript and exit")
   (println "  -s, --strip               Output sanitized YAMLScript (condensed whitespace)")
   (println "  -h, --help                Show this help message"))
+
+(defn- parse-discover-opts [args]
+  (loop [xs args
+         opts {:intent "" :keyword nil :limit nil :json? false :help? false}]
+    (if (empty? xs)
+      opts
+      (let [[a b & more] xs]
+        (cond
+          (#{"-h" "--help"} a)
+          (recur (rest xs) (assoc opts :help? true))
+
+          (= "--json" a)
+          (recur (rest xs) (assoc opts :json? true))
+
+          (#{"-i" "--intent"} a)
+          (recur more (assoc opts :intent (or b "")))
+
+          (#{"-k" "--keyword"} a)
+          (recur more (assoc opts :keyword b))
+
+          (#{"-n" "--limit"} a)
+          (recur more (assoc opts :limit (when b (Integer/parseInt b))))
+
+          (str/blank? (:intent opts))
+          (recur (rest xs) (assoc opts :intent a))
+
+          :else
+          (recur (rest xs) (update opts :intent #(str % " " a))))))))
 
 (defn run-discovery [command args is-debug is-strip is-tty]
   (let [man-cmd (let [file (io/file command)
@@ -181,6 +188,25 @@
         (.delete tmp-file)))))
 
 (defn -main [& args]
+  (cond
+    (= "mcp" (first args))
+    (do (mcp/serve-stdio!)
+        (System/exit 0))
+
+    (= "discover" (first args))
+    (let [{:keys [intent keyword limit json? help?]} (parse-discover-opts (rest args))]
+      (when (or help? (and (str/blank? intent) (str/blank? keyword)))
+        (display-help)
+        (System/exit 0))
+      (let [res (ubuntu/discover {:intent (if (str/blank? intent) keyword intent)
+                                  :keyword keyword
+                                  :limit limit})]
+        (if json?
+          (println (json/generate-string res))
+          (print (ubuntu/format-discovery-yaml res)))
+        (flush)
+        (System/exit 0))))
+
   (let [is-help (some #{"--help" "-h"} args)
         is-debug (some #{"--debug" "-d"} args)
         is-strip (some #{"--strip" "-s"} args)
@@ -207,42 +233,48 @@
 
     (if (or is-deep-cli is-deep-tui)
       (let [keyword command
-            _ (when-not keyword (do (println "Error: No keyword provided for deep search.") (System/exit 1)))
-            _ (binding [*out* *err*] (print (str "Searching for \"" keyword "\"... ")) (flush))
-            search-all? (System/getenv "MANDY_ALL_SECTIONS")
-            section-flag (if search-all? "" "-S 1:6:8 ")
-            search-cmd (str "man " section-flag "-wK \"" keyword "\" 2>/dev/null")
-            results-raw (:out (sh "bash" "-c" search-cmd))
-            _ (binding [*out* *err*] (println "Done."))
-            paths (->> (str/split-lines results-raw)
-                       (remove str/blank?)
-                       distinct)
-            results (for [path paths]
-                      (let [filename (last (str/split path #"/"))
-                            cmd-name (first (str/split filename #"\."))
-                            context-raw (:out (sh "bash" "-c" (str "zgrep -i -m 1 -C 1 \"" keyword "\" " path " 2>/dev/null")))
-                            context (->> (str/split-lines context-raw)
-                                         (map strip-troff)
-                                         (map sanitize)
-                                         (remove str/blank?))]
-                        [cmd-name {:path path :context context}]))
-            unique-results (->> results
-                                (group-by first)
-                                (map (fn [[_ group]] (first group)))
-                                (into (array-map)))]
-        (cond
-          (empty? unique-results)
-          (do (println "No results found.") (System/exit 0))
+            _ (when-not keyword (do (println "Error: No keyword provided for deep search.") (System/exit 1)))]
+        (if (and is-deep-cli (not (System/getenv "MANDY_LEGACY_SEARCH")))
+          (let [res (ubuntu/discover {:intent keyword :keyword keyword :limit 5})]
+            (if is-json
+              (println (json/generate-string res))
+              (print (ubuntu/format-discovery-yaml res)))
+            (flush))
+          (let [_ (binding [*out* *err*] (print (str "Searching for \"" keyword "\"... ")) (flush))
+                search-all? (System/getenv "MANDY_ALL_SECTIONS")
+                section-flag (if search-all? "" "-S 1:6:8 ")
+                search-cmd (str "man " section-flag "-wK \"" keyword "\" 2>/dev/null")
+                results-raw (:out (sh "bash" "-c" search-cmd))
+                _ (binding [*out* *err*] (println "Done."))
+                paths (->> (str/split-lines results-raw)
+                           (remove str/blank?)
+                           distinct)
+                results (for [path paths]
+                          (let [filename (last (str/split path #"/"))
+                                cmd-name (first (str/split filename #"\."))
+                                context-raw (:out (sh "bash" "-c" (str "zgrep -i -m 1 -C 1 \"" keyword "\" " path " 2>/dev/null")))
+                                context (->> (str/split-lines context-raw)
+                                             (map strip-troff)
+                                             (map sanitize)
+                                             (remove str/blank?))]
+                            [cmd-name {:path path :context context}]))
+                unique-results (->> results
+                                    (group-by first)
+                                    (map (fn [[_ group]] (first group)))
+                                    (into (array-map)))]
+            (cond
+              (empty? unique-results)
+              (do (println "No results found.") (System/exit 0))
 
-          (= 1 (count unique-results))
-          (let [match (first (keys unique-results))]
-            (if is-deep-cli
-              (run-discovery match [] true false is-tty)
-              (run-discovery match [] false false is-tty)))
+              (= 1 (count unique-results))
+              (let [match (first (keys unique-results))]
+                (if is-deep-cli
+                  (run-discovery match [] true false is-tty)
+                  (run-discovery match [] false false is-tty)))
 
-          :else
-          (do (println "!yamlscript/v0/data")
-              (println (yaml/generate-string {:RESULTS unique-results})))))
+              :else
+              (do (println "!yamlscript/v0/data")
+                  (println (yaml/generate-string {:RESULTS unique-results})))))))
       
       (if-not command
         (do (println "Error: No command specified.")
