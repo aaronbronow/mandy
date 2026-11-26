@@ -95,6 +95,28 @@
      (catch Exception e
        {:exit -1 :out "" :err (.getMessage e) :timed-out? false}))))
 
+;; --- Fast In-Memory Caches (dir-mtime L1 + disk-mirror + pre-encoded L2) ---
+
+(defonce ^:private path-execs-cache (atom nil))
+(defonce ^:private dpkg-status-cache (atom nil))
+(defonce ^:private disk-cache-mem (atom nil))
+(defonce ^:private response-cache (atom {}))
+
+(defn path-dir-signature
+  "Return [[dir mtime] ...] across PATH directories for sub-millisecond invalidation."
+  []
+  (let [path-env (or (System/getenv "PATH") "/usr/bin:/bin")]
+    (mapv (fn [dir-str]
+            (let [^File d (io/file dir-str)]
+              [dir-str (if (.exists d) (.lastModified d) -1)]))
+          (remove str/blank? (str/split path-env #":")))))
+
+(defn dpkg-status-mtime
+  "Return mtime of /var/lib/dpkg/status (or -1 if absent)."
+  []
+  (let [^File f (io/file "/var/lib/dpkg/status")]
+    (if (.exists f) (.lastModified f) -1)))
+
 ;; --- Local PATH Executable Verification ---
 
 (defn- executable-file? [^File f]
@@ -106,23 +128,34 @@
       (catch Exception _ false))))
 
 (defn scan-path-executables
-  "Scan PATH directories and return {cmd-name {:cmd :path}} for executable regular files."
-  []
-  (let [path-env (or (System/getenv "PATH") "/usr/bin:/bin")]
-    (reduce (fn [acc dir-str]
-              (let [dir (io/file dir-str)]
-                (if (and (.exists dir) (.isDirectory dir))
-                  (reduce (fn [m ^File f]
-                            (let [name (.getName f)]
-                              (if (and (not (contains? m name))
-                                       (executable-file? f))
-                                (assoc m name {:cmd name :path (.getAbsolutePath f)})
-                                m)))
-                          acc
-                          (or (.listFiles dir) []))
-                  acc)))
-            {}
-            (remove str/blank? (str/split path-env #":")))))
+  "Scan PATH directories and return {cmd-name {:cmd :path}}, memoized by dir mtime and TTL."
+  ([] (scan-path-executables 30000))
+  ([ttl-ms]
+   (let [now (System/currentTimeMillis)
+         sig (path-dir-signature)
+         cached @path-execs-cache]
+     (if (and cached
+              (= (:sig cached) sig)
+              (< now (long (:expires-ms cached))))
+       (:data cached)
+       (let [data (reduce (fn [acc [dir-str _]]
+                            (let [^File dir (io/file dir-str)]
+                              (if (and (.exists dir) (.isDirectory dir))
+                                (reduce (fn [m ^File f]
+                                          (let [nm (.getName f)]
+                                            (if (and (not (contains? m nm))
+                                                     (executable-file? f))
+                                              (assoc m nm {:cmd nm :path (.getAbsolutePath f)})
+                                              m)))
+                                        acc
+                                        (or (.listFiles dir) []))
+                                acc)))
+                          {}
+                          sig)]
+         (reset! path-execs-cache {:sig sig
+                                   :expires-ms (+ now (long (or ttl-ms 30000)))
+                                   :data data})
+         data)))))
 
 (defn resolve-exec-info
   "Resolve realpath and mtime for a verified PATH executable map."
@@ -131,20 +164,20 @@
     (try
       (let [p (Paths/get path (into-array String []))
             rp (.toString (.toRealPath p (into-array LinkOption [])))
-            mtime (.lastModified (io/file rp))]
+            ^File rf (io/file rp)
+            mtime (.lastModified rf)]
         (assoc entry :realpath rp :mtime mtime))
       (catch Exception _
-        (assoc entry :realpath path :mtime (.lastModified (io/file path)))))))
+        (let [^File pf (io/file path)]
+          (assoc entry :realpath path :mtime (.lastModified pf)))))))
 
 ;; --- Offline dpkg Metadata & Provenance ---
 
-(defonce ^:private dpkg-status-cache (atom nil))
-
-(defn- parse-dpkg-status-text [text]
+(defn- parse-dpkg-status-text [^String text]
   (let [stanzas (str/split text #"\n\n+")]
     (reduce (fn [acc stanza]
               (let [lines (str/split-lines stanza)
-                    parsed (reduce (fn [{:keys [fields last-key]} line]
+                    parsed (reduce (fn [{:keys [fields last-key]} ^String line]
                                      (cond
                                        (str/starts-with? line " ")
                                        (if (= last-key :Description)
@@ -180,7 +213,7 @@
 (defn load-dpkg-status
   "Load installed packages from /var/lib/dpkg/status, memoized by file mtime."
   []
-  (let [f (io/file "/var/lib/dpkg/status")]
+  (let [^File f (io/file "/var/lib/dpkg/status")]
     (if-not (.exists f)
       {}
       (let [mtime (.lastModified f)
@@ -361,23 +394,36 @@
     (io/file home rel)))
 
 (defn load-discovery-cache [strategy]
-  (let [f (cache-file strategy)]
-    (if (.exists f)
-      (try
-        (json/parse-string (slurp f) false)
-        (catch Exception _ {}))
-      {})))
+  (let [^File f (cache-file strategy)
+        fpath (.getAbsolutePath f)]
+    (if-not (.exists f)
+      (do (reset! disk-cache-mem nil)
+          {})
+      (let [mtime (.lastModified f)
+            cached @disk-cache-mem]
+        (if (and cached
+                 (= (:path cached) fpath)
+                 (= (:mtime cached) mtime))
+          (:data cached)
+          (let [data (try
+                       (json/parse-string (slurp f) false)
+                       (catch Exception _ {}))]
+            (reset! disk-cache-mem {:path fpath :mtime mtime :data data})
+            data))))))
 
 (defn save-discovery-cache! [strategy cache-map]
   (let [^File f (cache-file strategy)
         ^File parent (.getParentFile f)]
     (try
       (.mkdirs parent)
-      (let [tmp (File/createTempFile "ubuntu-cache-" ".json" parent)]
+      (let [^File tmp (File/createTempFile "ubuntu-cache-" ".json" parent)]
         (spit tmp (json/generate-string cache-map))
         (Files/move (.toPath tmp) (.toPath f)
                     (into-array StandardCopyOption [StandardCopyOption/REPLACE_EXISTING
-                                                    StandardCopyOption/ATOMIC_MOVE])))
+                                                    StandardCopyOption/ATOMIC_MOVE]))
+        (reset! disk-cache-mem {:path (.getAbsolutePath f)
+                                :mtime (.lastModified f)
+                                :data cache-map}))
       (catch Exception _ nil))))
 
 (defn- extract-man-summary [structured-data cmd pkg-summary]
@@ -461,13 +507,19 @@
   (let [{:keys [cmd realpath mtime]} exec-info
         cached (get @cache-atom realpath)]
     (if (and cached
-             (= (get cached "schema_version") 2)
+             (= (get cached "schema_version") 3)
              (= (get cached "mtime") mtime))
       {:interface_source (get cached "interface_source")
        :summary (get cached "summary")
        :flags (mapv (fn [f] {:spec (get f "spec") :desc (get f "desc")}) (get cached "flags"))
        :known_long_flags (vec (get cached "known_long_flags"))
        :dry_run_flag (get cached "dry_run_flag")
+       :cached_prov (when (contains? cached "dpkg_status_mtime")
+                      {:dpkg_status_mtime (get cached "dpkg_status_mtime")
+                       :package (get cached "package")
+                       :manager (get cached "manager")
+                       :version (get cached "version")
+                       :package_summary (get cached "package_summary")})
        :cache_hit true}
       (let [help-ms (or (:help_timeout_ms strategy) 1500)
             man-w-sec (run-proc ["man" "-w" "-S" (str/join ":" (:man_sections strategy)) cmd] {:timeout-ms 1000})
@@ -504,7 +556,7 @@
             full-text (str (or man-rendered "") "\n" (str/join "\n" (or (:lines help-res) [])))
             known-long-flags (extract-known-long-flags full-text)
             dry-run-flag (detect-dry-run-flag flags)
-            record (cond-> {"schema_version" 2
+            record (cond-> {"schema_version" 3
                             "mtime" mtime
                             "interface_source" interface-source
                             "summary" summary
@@ -524,23 +576,27 @@
 (defn- tokenize-query [intent keyword-str strategy]
   (let [stops (set (map str/lower-case (:stopwords strategy)))
         syns (:intent_synonyms strategy)
+        kw-tok (when-not (str/blank? keyword-str)
+                 (let [k (str/trim (str/lower-case keyword-str))]
+                   (when (re-matches #"[a-z0-9][a-z0-9_+.-]*" k) k)))
+        kw-syns (set (map str/lower-case (or (when kw-tok (get syns (keyword kw-tok))) [])))
         raw-text (str/lower-case (str (or keyword-str "") " " (or intent "")))
-        primary (->> (re-seq #"[a-z0-9][a-z0-9_+.-]*" raw-text)
+        primary (->> (concat (when kw-tok [kw-tok])
+                             (re-seq #"[a-z0-9][a-z0-9_+]*" raw-text))
                      (remove #(or (contains? stops %) (< (count %) 2)))
                      distinct
                      vec)
-        expanded (->> primary
-                      (mapcat #(get syns (keyword %) []))
+        expanded (->> (concat kw-syns
+                              (mapcat #(get syns (keyword %) []) primary))
                       (map str/lower-case)
                       (remove (set primary))
                       distinct
                       vec)]
     {:primary primary
      :expanded expanded
+     :kw-synonyms kw-syns
      :all (vec (distinct (concat primary expanded)))
-     :keyword-token (when-not (str/blank? keyword-str)
-                      (let [k (str/trim (str/lower-case keyword-str))]
-                        (when (re-matches #"[a-z0-9][a-z0-9_+.-]*" k) k)))}))
+     :keyword-token kw-tok}))
 
 (defn- gather-apropos [terms path-execs]
   (reduce (fn [acc term]
@@ -630,96 +686,202 @@
      :dpkg-hits dpkg-hits
      :deep-set deep-set}))
 
-(defn- pre-score-candidate [cmd {:keys [primary expanded keyword-token]} {:keys [apropos dpkg-hits deep-set]} path-execs weights]
+(defn- pre-score-candidate [cmd {:keys [primary expanded kw-synonyms keyword-token]} {:keys [apropos dpkg-hits deep-set]} path-execs weights]
   (let [c-l (str/lower-case cmd)
         path (get-in path-execs [cmd :path] "")
         ap-desc (str/lower-case (or (get-in apropos [cmd :apropos-desc]) ""))
         dpkg-score (get dpkg-hits cmd 0)]
     (+ (if (= c-l keyword-token) (or (:exact_binary_match weights) 120) 0)
-       (if (some #(= c-l %) primary) (or (:exact_binary_match weights) 120) 0)
+       (if (contains? kw-synonyms c-l) 110 0)
+       (if (some #(= c-l %) primary) 35 0)
        (if (some #(= c-l %) expanded) (or (:binary_prefix_match weights) 60) 0)
-       (if (some #(and (>= (count %) 3) (str/starts-with? c-l %)) primary) (or (:binary_prefix_match weights) 60) 0)
+       (if (some #(and (>= (count %) 3) (str/starts-with? c-l %)) primary) 30 0)
        (if (contains? apropos cmd) (or (:apropos_match weights) 40) 0)
        (* (min 5 (count (filter #(str/includes? ap-desc %) primary))) (or (:intent_token_in_summary weights) 15))
        (* (min 4 dpkg-score) (or (:dpkg_description_match weights) 30))
        (if (contains? deep-set cmd) (or (:man_deep_match weights) 25) 0)
        (if (str/starts-with? path "/usr/bin/") (or (:standard_usr_bin weights) 5) 0))))
 
-(defn- select-relevant-flags [flags primary-tokens max-flags max-desc-chars]
+(defn- text-word-set [^String s]
+  (let [words (re-seq #"[a-z0-9]+" (str/lower-case (or s "")))]
+    (reduce (fn [acc ^String w]
+              (cond-> (conj acc w)
+                (and (> (count w) 3) (str/ends-with? w "s"))
+                (conj (subs w 0 (dec (count w))))))
+            #{}
+            words)))
+
+(defn- select-relevant-flags
+  [flags primary-tokens max-flags max-desc-chars & {:keys [lean? unmatched-cap has-usage-order?]}]
   (let [wants-meta? (some #{"help" "version" "license" "formats"} primary-tokens)
+        pt-stems (mapv (fn [^String pt]
+                         (if (and (> (count pt) 3) (str/ends-with? pt "s"))
+                           [pt (subs pt 0 (dec (count pt)))]
+                           [pt nil]))
+                       primary-tokens)
         scored (map-indexed
                  (fn [idx {:keys [spec desc]}]
-                   (let [spec-l (str/lower-case spec)
-                         desc-l (str/lower-case desc)
-                         spec-hits (count (filter #(word-match? spec-l %) primary-tokens))
-                         desc-hits (count (filter #(word-match? desc-l %) primary-tokens))
+                   (let [spec-ws (text-word-set spec)
+                         desc-ws (text-word-set desc)
+                         spec-matched (set (keep (fn [[pt st]]
+                                                   (when (or (contains? spec-ws pt)
+                                                             (and st (contains? spec-ws st)))
+                                                     pt))
+                                                 pt-stems))
+                         desc-matched (set (keep (fn [[pt st]]
+                                                   (when (or (contains? desc-ws pt)
+                                                             (and st (contains? desc-ws st)))
+                                                     pt))
+                                                 pt-stems))
+                         all-matched (into spec-matched desc-matched)
                          has-short? (boolean (re-find #"^-[a-zA-Z0-9](\s|,|$)" spec))
                          concise? (<= (count spec) 26)
                          meta-pen (if (and (not wants-meta?)
-                                           (re-find #"^(-h|-L|-V|--help|--version|-version|-buildconf|-formats|-demuxers|-muxers|-devices|-codecs|-decoders|-encoders|-bsfs|-h,)" spec))
+                                           (or (re-find #"^(?:-h|-V|--help|--version|-version|-buildconf|-formats|-demuxers|-muxers|-devices|-codecs|-decoders|-encoders|-bsfs|-h,|-D\s|-Olevel|-warn|-nowarn)(?:\s|,|$)" spec)
+                                               (re-find #"^\s*(-P|-H)\s*$" spec)))
                                     -3
                                     0)
-                         score (+ (* 4 spec-hits)
-                                  (* 2 desc-hits)
-                                  (if has-short? 1 0)
-                                  (if concise? 1 0)
-                                  meta-pen)]
-                     {:idx idx :score score :spec spec :desc desc}))
+                         base-score (+ (* 4 (count spec-matched))
+                                       (* 2 (count desc-matched))
+                                       (if has-short? 1 0)
+                                       (if concise? 1 0)
+                                       meta-pen)]
+                     {:idx idx :base-score base-score :matched all-matched :spec spec :desc desc}))
                  flags)
-        chosen (->> scored
-                    (sort-by (juxt (comp - :score) :idx))
-                    (take max-flags)
-                    (sort-by :idx))]
+        matched-items (filter #(seq (:matched %)) scored)
+        chosen (if (seq matched-items)
+                 (let [picked (loop [rem matched-items
+                                     covered #{}
+                                     acc []]
+                                (if (or (empty? rem) (>= (count acc) (long max-flags)))
+                                  acc
+                                  (let [best (apply max-key
+                                                    (fn [item]
+                                                      (let [new-cov (count (remove covered (:matched item)))]
+                                                        (- (* 10000 (long (+ (* 8 new-cov) (:base-score item))))
+                                                           (long (:idx item)))))
+                                                    rem)]
+                                    (recur (remove #(= (:idx %) (:idx best)) rem)
+                                           (into covered (:matched best))
+                                           (conj acc best)))))
+                       picked-ids (set (map :idx picked))
+                       topped (if (and (not lean?) (< (count picked) (long max-flags)))
+                                (concat picked
+                                        (->> scored
+                                             (remove #(contains? picked-ids (:idx %)))
+                                             (sort-by (juxt (comp - :base-score) :idx))
+                                             (take (- (long max-flags) (count picked)))))
+                                picked)]
+                   (sort-by :idx topped))
+                 (let [cap (if lean?
+                             (if has-usage-order? 0 (or unmatched-cap 1))
+                             max-flags)]
+                   (if (pos? (long cap))
+                     (->> scored
+                          (sort-by (juxt (comp - :base-score) :idx))
+                          (take cap)
+                          (sort-by :idx))
+                     [])))]
     (mapv (fn [{:keys [spec desc]}]
-            (let [d (if (> (count desc) max-desc-chars)
-                      (str (subs desc 0 (- max-desc-chars 3)) "...")
+            (let [d (if (> (count desc) (long max-desc-chars))
+                      (str (subs desc 0 (- (long max-desc-chars) 3)) "...")
                       desc)]
               (str spec ": " d)))
           chosen)))
 
 (defn format-discovery-yaml
-  "Render compact Agent-First YAML output."
-  [result-map]
-  (str "!yamlscript/v0/data\n"
-       (yaml/generate-string result-map :dumper-options {:flow-style :block})))
+  "Render Agent-First YAML output (Lean by default; !yamlscript/v0/data when verbose)."
+  ([result-map] (format-discovery-yaml result-map false))
+  ([result-map verbose?]
+   (let [body (yaml/generate-string result-map :dumper-options {:flow-style :block})]
+     (if verbose?
+       (str "!yamlscript/v0/data\n" body)
+       body))))
+
+(defn- attach-cached-prov [cache-atom top-pre dpkg-mtime dpkg-map]
+  (let [need-prov (reduce (fn [acc {:keys [cmd realpath mtime]}]
+                            (let [c (get @cache-atom realpath)]
+                              (if (and c
+                                       (= (get c "schema_version") 3)
+                                       (= (get c "mtime") mtime)
+                                       (= (get c "dpkg_status_mtime") dpkg-mtime))
+                                (assoc acc cmd {:package (get c "package")
+                                                :manager (get c "manager")
+                                                :version (get c "version")
+                                                :package_summary (get c "package_summary")})
+                                acc)))
+                          {}
+                          top-pre)
+        missing-execs (remove #(contains? need-prov (:cmd %)) top-pre)
+        fetched (if (seq missing-execs)
+                  (resolve-dpkg-provenance missing-execs dpkg-map)
+                  {})]
+    {:prov-map (merge need-prov fetched)
+     :fetched-cmds (set (keys fetched))}))
 
 (defn discover
   "Run Ubuntu live tool discovery and return structured map with verified local executables."
-  [{:keys [intent keyword limit] :or {intent "" keyword nil limit nil}}]
+  [{:keys [intent keyword limit verbose? max-flags] :or {intent "" keyword nil limit nil verbose? false max-flags nil}}]
   (let [strat (strategy/load-ubuntu-strategy)
+        ttl-ms (or (:l1_cache_ttl_ms strat) 30000)
+        lean? (not verbose?)
         weights (:weights strat)
         max-cand (or (:max_candidates strat) 5)
-        max-flags (or (:max_flags_per_tool strat) 5)
-        max-desc (or (:max_flag_desc_chars strat) 75)
+        eff-max-flags (or max-flags
+                          (if lean?
+                            (or (:lean_max_flags_per_tool strat) 3)
+                            (or (:max_flags_per_tool strat) 5)))
+        max-desc (if lean?
+                   (or (:lean_max_flag_desc_chars strat) 48)
+                   (or (:max_flag_desc_chars strat) 75))
+        unmatched-cap (or (:lean_unmatched_flag_cap strat) 1)
         min-score (or (:min_candidate_score strat) 40)
         q-info (tokenize-query intent keyword strat)
-        path-execs (scan-path-executables)
+        path-execs (scan-path-executables ttl-ms)
         kw-tok (:keyword-token q-info)
         exact-match? (boolean (and kw-tok (contains? path-execs kw-tok)))
         eff-limit (cond
                     limit (min max-cand (max 1 (int limit)))
                     exact-match? (or (:exact_binary_limit strat) 1)
                     :else (or (:default_limit strat) 2))
-        dpkg-map (load-dpkg-status)
-        gathered (gather-candidates q-info strat dpkg-map path-execs)
-        top-pre (->> (:cmds gathered)
-                     (map (fn [cmd]
-                            {:cmd cmd
-                             :pre-score (pre-score-candidate cmd q-info gathered path-execs weights)}))
-                     (sort-by (juxt (comp - :pre-score) :cmd))
-                     (take (max 10 (* eff-limit 3)))
-                     (mapv #(resolve-exec-info (get path-execs (:cmd %)))))
-        provenance (resolve-dpkg-provenance top-pre dpkg-map)
+        fast-exact? (and exact-match? (= eff-limit 1))
         cache-atom (atom (load-discovery-cache strat))
         before-cache @cache-atom
+        need-dpkg? (or (not fast-exact?) verbose?)
+        dpkg-map (when need-dpkg? (load-dpkg-status))
+        dpkg-mtime (if verbose? (dpkg-status-mtime) -1)
+        gathered (when-not fast-exact?
+                   (gather-candidates q-info strat dpkg-map path-execs))
+        top-pre (if fast-exact?
+                  [(resolve-exec-info (get path-execs kw-tok))]
+                  (->> (:cmds gathered)
+                       (map (fn [cmd]
+                              {:cmd cmd
+                               :pre-score (pre-score-candidate cmd q-info gathered path-execs weights)}))
+                       (sort-by (juxt (comp - :pre-score) :cmd))
+                       (take (max 10 (* eff-limit 3)))
+                       (mapv #(resolve-exec-info (get path-execs (:cmd %))))))
+        {:keys [prov-map fetched-cmds]} (if need-dpkg?
+                                          (attach-cached-prov cache-atom top-pre dpkg-mtime dpkg-map)
+                                          {:prov-map {} :fetched-cmds #{}})
         enriched (mapv (fn [exec-info]
                          (let [cmd (:cmd exec-info)
-                               prov (get provenance cmd)
+                               prov (get prov-map cmd)
                                iface (extract-interface exec-info (:package_summary prov) strat cache-atom)
+                               _ (when (and verbose? (contains? fetched-cmds cmd) prov)
+                                   (swap! cache-atom update (:realpath exec-info)
+                                          (fn [rec]
+                                            (cond-> (assoc (or rec {}) "dpkg_status_mtime" dpkg-mtime)
+                                              (:package prov) (assoc "package" (:package prov))
+                                              (:manager prov) (assoc "manager" (:manager prov))
+                                              (:version prov) (assoc "version" (:version prov))
+                                              (:package_summary prov) (assoc "package_summary" (:package_summary prov))))))
                                summary-l (str/lower-case (or (:summary iface) ""))
                                flags-l (str/lower-case (str/join " " (map #(str (:spec %) " " (:desc %)) (:flags iface))))
                                pkg-l (str/lower-case (or (:package prov) ""))
-                               pre (pre-score-candidate cmd q-info gathered path-execs weights)
+                               pre (if fast-exact?
+                                     200
+                                     (pre-score-candidate cmd q-info gathered path-execs weights))
                                final-score (+ pre
                                               (if (some #(str/includes? pkg-l %) (:primary q-info)) (or (:package_name_match weights) 50) 0)
                                               (* (count (filter #(str/includes? summary-l %) (:primary q-info)))
@@ -741,33 +903,133 @@
         _ (when (not= before-cache @cache-atom)
             (save-discovery-cache! strat @cache-atom))
         sorted-enriched (sort-by (juxt (comp - :score) :cmd) enriched)
-        filtered-enriched (let [above (filter #(>= (:score %) min-score) sorted-enriched)]
-                            (if (seq above)
-                              above
-                              (take 1 sorted-enriched)))
+        filtered-enriched (if fast-exact?
+                            sorted-enriched
+                            (let [above (filter #(>= (:score %) min-score) sorted-enriched)]
+                              (if (seq above)
+                                above
+                                (take 1 sorted-enriched))))
         ranked (take eff-limit filtered-enriched)
         results-map (reduce (fn [acc {:keys [cmd exec prov iface]}]
                               (let [safety (get-in strat [:command_safety (clojure.core/keyword cmd)])
                                     side-effects (:side_effects safety)
                                     usage-order (:usage_order safety)
                                     dry-run (:dry_run_flag iface)
-                                    entry (cond-> {:binary (:realpath exec)}
-                                            (:package prov) (assoc :package (:package prov))
-                                            true (assoc :manager (:manager prov))
-                                            (:version prov) (assoc :version (:version prov))
-                                            true (assoc :interface_source (:interface_source iface)
-                                                        :summary (:summary iface))
-                                            side-effects (assoc :side_effects side-effects)
-                                            dry-run (assoc :dry_run_flag dry-run)
-                                            usage-order (assoc :usage_order usage-order)
-                                            true (assoc :flags (select-relevant-flags (:flags iface)
-                                                                                      (:primary q-info)
-                                                                                      max-flags
-                                                                                      max-desc)))]
+                                    flags-vec (select-relevant-flags (:flags iface)
+                                                                     (:primary q-info)
+                                                                     eff-max-flags
+                                                                     max-desc
+                                                                     :lean? lean?
+                                                                     :unmatched-cap unmatched-cap
+                                                                     :has-usage-order? (boolean usage-order))
+                                    entry (if lean?
+                                            (cond-> (array-map)
+                                              usage-order (assoc :order usage-order)
+                                              (and side-effects (not= side-effects "read_only")) (assoc :side_effects side-effects)
+                                              (and dry-run (contains? #{"mutating" "destructive"} side-effects)) (assoc :dry_run dry-run)
+                                              (and (empty? flags-vec) (nil? usage-order)) (assoc :summary (:summary iface))
+                                              (seq flags-vec) (assoc :flags flags-vec))
+                                            (cond-> {:binary (:realpath exec)}
+                                              (:package prov) (assoc :package (:package prov))
+                                              true (assoc :manager (:manager prov))
+                                              (:version prov) (assoc :version (:version prov))
+                                              true (assoc :interface_source (:interface_source iface)
+                                                          :summary (:summary iface))
+                                              side-effects (assoc :side_effects side-effects)
+                                              dry-run (assoc :dry_run_flag dry-run)
+                                              usage-order (assoc :usage_order usage-order)
+                                              true (assoc :flags flags-vec)))]
                                 (assoc acc (clojure.core/keyword cmd) entry)))
                             (array-map)
                             ranked)
-        not-installed (when (and kw-tok (not exact-match?))
+        topic-only #{"pdf" "yaml" "json" "video" "audio" "archive" "compress"
+                     "checksum" "hash" "regex" "search" "tree" "sqlite" "socket"
+                     "port" "network" "directory" "frame" "merge" "blake2" "exif"}
+        not-installed (when (and kw-tok (not exact-match?) (not (contains? topic-only kw-tok)))
                         [kw-tok])]
-    (cond-> {:RESULTS results-map}
-      (seq not-installed) (assoc :NOT_INSTALLED not-installed))))
+    (cond-> (array-map)
+      (seq not-installed) (assoc :NOT_INSTALLED not-installed)
+      true (assoc :RESULTS results-map))))
+
+(defn discover-yaml
+  "Run discovery and return YAML string backed by a short-lived dir-mtime-validated L2 response cache."
+  [{:keys [intent keyword limit verbose? max-flags] :as opts}]
+  (let [strat (strategy/load-ubuntu-strategy)
+        ttl-ms (long (or (:l1_cache_ttl_ms strat) 30000))
+        now (System/currentTimeMillis)
+        path-execs (scan-path-executables ttl-ms)
+        path-sig (path-dir-signature)
+        norm-int (when-not (str/blank? intent)
+                   (-> intent str/trim str/lower-case (str/replace #"\s+" " ")))
+        norm-kw (when-not (str/blank? keyword)
+                  (-> keyword str/trim str/lower-case (str/replace #"\s+" " ")))
+        max-cand (or (:max_candidates strat) 5)
+        exact-match? (boolean (and norm-kw (contains? path-execs norm-kw)))
+        eff-limit (cond
+                    limit (min max-cand (max 1 (int limit)))
+                    exact-match? (or (:exact_binary_limit strat) 1)
+                    :else (or (:default_limit strat) 2))
+        v? (boolean verbose?)
+        dk-mtime (if v? (dpkg-status-mtime) -1)
+        cache-key [norm-int norm-kw eff-limit v? (int (or max-flags 0)) path-sig dk-mtime]
+        hit (get @response-cache cache-key)]
+    (if (and hit (< now (long (:expires-ms hit))))
+      (:yaml hit)
+      (let [yaml-str (format-discovery-yaml (discover (assoc opts :verbose? v?)) v?)]
+        (swap! response-cache
+               (fn [m]
+                 (let [m' (if (>= (count m) 256) {} m)]
+                   (assoc m' cache-key {:expires-ms (+ now ttl-ms) :yaml yaml-str}))))
+        yaml-str))))
+
+(def ^:private preflight-ignore-tokens
+  #{"a" "an" "the" "installed" "local" "locally" "cli" "tool" "tools" "binary"
+    "utility" "utilities" "bash" "shell" "command" "script" "file" "files"
+    "text" "data" "line" "lines" "json" "yaml" "csv" "pdf" "http" "https"
+    "stdout" "stdin" "output" "input" "directory" "folder" "path" "paths"
+    "equivalent" "otherwise" "only" "columns" "column" "header" "headers"
+    "row" "rows" "archive" "format" "integer" "value" "relative" "sorted"
+    "one" "per" "every" "each" "another" "write" "inside" "just" "any"})
+
+(def ^:private preflight-common-absent-candidates
+  #{"fd" "yq" "exiftool" "7z" "bat" "eza" "fzf" "ripgrep" "miller" "mlr"})
+
+(defn preflight
+  "Zero-turn deterministic prompt preflight returning compact Lean YAML hints for absent, specialized, or man-less tools mentioned in prompt."
+  [^String prompt]
+  (if (str/blank? prompt)
+    ""
+    (let [strat (strategy/load-ubuntu-strategy)
+          ttl-ms (or (:l1_cache_ttl_ms strat) 30000)
+          path-execs (scan-path-executables ttl-ms)
+          specialized (set (map str/lower-case (or (:preflight_specialized_tools strat) [])))
+          backticks (map second (re-seq #"`([a-zA-Z0-9][a-zA-Z0-9_+-]{1,24})`" prompt))
+          verb-nouns (map second (re-seq #"(?i)\b(?:using|via|run|call|invoke)\s+(?:(?:an?|the|any)\s+)?(?:locally\s+installed\s+|installed\s+|local\s+)?([a-zA-Z0-9][a-zA-Z0-9_+-]{1,24})\b" prompt))
+          words (re-seq #"\b[a-zA-Z0-9][a-zA-Z0-9_+-]{1,24}\b" (str/lower-case prompt))
+          explicit-absent (->> (concat backticks verb-nouns)
+                               (map str/lower-case)
+                               (remove preflight-ignore-tokens)
+                               (filter #(re-matches #"[a-z0-9][a-z0-9_+-]*" %))
+                               (remove #(contains? path-execs %)))
+          known-absent (->> words
+                            (filter preflight-common-absent-candidates)
+                            (remove #(contains? path-execs %)))
+          spec-hits (->> words
+                         (filter #(and (contains? specialized %) (contains? path-execs %))))
+          pdf-topic? (and (some #{"pdf"} words)
+                          (not-any? #(str/starts-with? % "pdf") spec-hits))
+          candidates (->> (concat explicit-absent known-absent spec-hits (when pdf-topic? ["pdf"]))
+                          distinct
+                          (take 2)
+                          vec)]
+      (if (empty? candidates)
+        ""
+        (->> candidates
+             (map (fn [kw]
+                    (str/trim (discover-yaml {:intent prompt
+                                              :keyword kw
+                                              :limit 1
+                                              :verbose? false
+                                              :max-flags 2}))))
+             (remove str/blank?)
+             (str/join "\n"))))))

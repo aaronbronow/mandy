@@ -1,10 +1,13 @@
 (ns mandy.check
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [mandy.strategy :as strategy]
-            [mandy.ubuntu :as ubuntu]))
+            [mandy.ubuntu :as ubuntu])
+  (:import [java.io File]
+           [java.util.regex Pattern]))
 
 (def ^:private shell-builtins
-  #{"." ":" "[" "[[" "alias" "bg" "break" "builtin" "case" "cd" "command" "continue"
+  #{"." ":" "[" "[[" "]]" "]" "alias" "bg" "break" "builtin" "case" "cd" "command" "continue"
     "declare" "do" "done" "echo" "elif" "else" "enable" "esac" "eval" "exec" "exit"
     "export" "false" "fg" "fi" "for" "function" "getopts" "hash" "if" "in" "jobs"
     "kill" "let" "local" "logout" "printf" "pwd" "read" "readonly" "return" "select"
@@ -16,11 +19,13 @@
     "sqlite3" "jq" "pdftotext" "pdfunite" "ffmpeg" "ls" "cp" "mv" "rm"
     "sed" "awk" "gawk" "curl" "wget"})
 
+(defonce ^:private check-verdict-cache (atom {}))
+
 (defn- extract-subshells
   "Return [cleaned-str subshell-cmds] extracting top-level $(...) commands (skipping $((...)))."
-  [s]
+  [^String s]
   (let [n (count s)]
-    (loop [i 0
+    (loop [i (long 0)
            quote nil
            esc? false
            out (StringBuilder.)
@@ -57,7 +62,7 @@
             (and (not= quote :single) (= c \$) (= nxt \()
                  (not (and (< (+ i 2) n) (= (.charAt s (+ i 2)) \())))
             (let [inner-res
-                  (loop [j (+ i 2) depth 1 q2 nil esc2? false inner (StringBuilder.)]
+                  (loop [j (long (+ i 2)) depth (long 1) q2 nil esc2? false inner (StringBuilder.)]
                     (if (>= j n)
                       [j (.toString inner)]
                       (let [ch (.charAt s j)]
@@ -75,7 +80,7 @@
                           :else (do (.append inner ch) (recur (inc j) depth q2 false inner))))))
                   [next-idx inner-str] inner-res]
               (.append out "SUBSHELL_VAL")
-              (recur next-idx quote false out (conj subs inner-str)))
+              (recur (long next-idx) quote false out (conj subs inner-str)))
 
             :else
             (do (.append out c)
@@ -83,9 +88,9 @@
 
 (defn- tokenize-shell
   "Quote-aware shell tokenizer yielding {:type :word|:sep|:redir :text s}."
-  [s]
+  [^String s]
   (let [n (count s)]
-    (loop [i 0
+    (loop [i (long 0)
            quote nil
            esc? false
            cur (StringBuilder.)
@@ -121,10 +126,10 @@
 
               ;; Comment outside quotes
               (and (nil? quote) (= c \#) (not had-cur?) (zero? (.length cur)))
-              (let [nl (.indexOf s "\n" i)]
+              (let [nl (.indexOf s "\n" (int i))]
                 (if (neg? nl)
                   tokens
-                  (recur nl nil false cur false tokens)))
+                  (recur (long nl) nil false cur false tokens)))
 
               ;; Whitespace outside quotes
               (and (nil? quote) (Character/isWhitespace c))
@@ -163,19 +168,59 @@
               (do (.append cur c)
                   (recur (inc i) quote false cur true tokens)))))))))
 
+(defn- collapse-test-brackets
+  "Prevent &&, ||, <, > inside [[ ... ]] or [ ... ] from splitting shell segments or acting as redirections."
+  [toks]
+  (loop [xs toks
+         in-bracket? false
+         out []]
+    (if (empty? xs)
+      out
+      (let [{:keys [type text] :as tok} (first xs)]
+        (cond
+          (and (= type :word) (contains? #{"[[" "["} text))
+          (recur (rest xs) true (conj out tok))
+
+          (and in-bracket? (= type :word) (contains? #{"]]" "]"} text))
+          (recur (rest xs) false (conj out tok))
+
+          (and in-bracket? (or (= type :sep) (= type :redir)))
+          (if (contains? #{"\n" ";"} text)
+            (recur (rest xs) false (conj out tok))
+            (recur (rest xs) true (conj out {:type :word :text text})))
+
+          :else
+          (recur (rest xs) in-bracket? (conj out tok)))))))
+
 (defn- parse-segment-tokens [toks]
   (let [n (count toks)]
     (loop [i 0
            words []
            redirs []]
       (if (>= i n)
-        (let [;; Strip leading VAR=val assignments
-              no-env (drop-while #(re-matches #"^[A-Za-z_][A-Za-z0-9_]*=.*" %) words)
+        (let [;; Strip leading VAR=val assignments and '!' negations
+              no-env (drop-while #(or (= % "!")
+                                      (re-matches #"^[A-Za-z_][A-Za-z0-9_]*=.*" %))
+                                 words)
               ;; Handle optional shell/wrapper keywords preceding an inner command
+              ;; Keep `command -v` / `command -V` intact as the shell builtin `command`.
               no-wrap (loop [xs no-env]
-                        (if (and (> (count xs) 1) (#{"command" "time" "nohup" "do" "then" "else"} (first xs)))
+                        (cond
+                          (and (> (count xs) 1)
+                               (= "command" (first xs))
+                               (some #{"-v" "-V"} (take 2 (rest xs))))
+                          xs
+
+                          (and (> (count xs) 2)
+                               (= "command" (first xs))
+                               (= "-p" (second xs)))
+                          (recur (drop 2 xs))
+
+                          (and (> (count xs) 1)
+                               (#{"command" "time" "nohup" "do" "then" "else" "!"} (first xs)))
                           (recur (rest xs))
-                          xs))]
+
+                          :else xs))]
           {:cmd (first no-wrap)
            :args (vec (rest no-wrap))
            :redirs redirs})
@@ -211,7 +256,7 @@
   "Parse command string into command segments (and recursively parsed $(...) subshells)."
   [cmd-str]
   (let [[cleaned subshells] (extract-subshells (or cmd-str ""))
-        toks (tokenize-shell cleaned)
+        toks (collapse-test-brackets (tokenize-shell cleaned))
         raw-segs (reduce (fn [acc {:keys [type] :as tok}]
                            (if (= type :sep)
                              (conj acc [])
@@ -310,7 +355,27 @@
     {:has-delete? (boolean has-delete?)
      :has-dry-run? (boolean has-dry-run?)}))
 
-(defn- check-unknown-long-flags [cmd-name args path-execs strat cache-atom]
+(defn- match-closest-flags [bad-flag flags]
+  (let [stem (-> (or bad-flag "")
+                 (str/replace #"^--?" "")
+                 (str/replace #"-" " "))
+        toks (->> (str/split (str/lower-case stem) #"[^a-z0-9]+")
+                  (remove #(or (str/blank? %) (< (count %) 2))))]
+    (if (empty? toks)
+      []
+      (->> flags
+           (keep (fn [{:keys [spec desc]}]
+                   (let [hay (str/lower-case (str spec " " desc))
+                         hits (count (filter #(str/includes? hay %) toks))]
+                     (when (pos? hits)
+                       {:hits hits
+                        :spec spec
+                        :desc (if (> (count desc) 48) (str (subs desc 0 45) "...") desc)}))))
+           (sort-by (comp - :hits))
+           (take 2)
+           (mapv #(str (:spec %) ": " (:desc %)))))))
+
+(defn- check-unknown-long-flags [cmd-name args path-execs strat cache-atom enrich?]
   (when (contains? cli-long-flag-checked cmd-name)
     (when-let [raw-exec (get path-execs cmd-name)]
       (let [exec-info (ubuntu/resolve-exec-info raw-exec)
@@ -327,11 +392,23 @@
                                         (str "--" (subs lf 5)))]
                       (when-not (or (contains? known lf)
                                     (and pos-variant (contains? known pos-variant)))
-                        {:code "UNKNOWN_FLAG"
-                         :severity "block"
-                         :command cmd-name
-                         :message (str "Flag '" lf "' is not documented for '" cmd-name "' (" (:interface_source iface) "). Call discover_local_tool(intent, keyword='" cmd-name "') for valid flags.")})))
+                        (let [hints (when enrich? (match-closest-flags lf (:flags iface)))]
+                          {:code "UNKNOWN_FLAG"
+                           :severity "block"
+                           :command cmd-name
+                           :flag lf
+                           :message (if (seq hints)
+                                      (str "Flag '" lf "' invalid for '" cmd-name "'. Try: " (str/join " | " hints))
+                                      (str "Flag '" lf "' is not documented for '" cmd-name "' (" (:interface_source iface) "). Call discover_local_tool(intent, keyword='" cmd-name "') for valid flags."))}))))
                   long-flags)))))))
+
+(defn- guarded-command-probe? [cmd-str cname]
+  (when (and cmd-str cname)
+    (boolean
+      (re-find (re-pattern (str "\\b(?:command\\s+-v|which|type)\\s+"
+                                (Pattern/quote cname)
+                                "(?:\\s|;|&|$)"))
+               cmd-str))))
 
 (defn- norm-path-token [s]
   (-> (or s "")
@@ -339,167 +416,206 @@
       str/trim))
 
 (defn check-command
-  "Deterministically validate a proposed bash command before execution."
+  "Deterministically validate a proposed bash command before execution (L2 dir-mtime cached)."
   ([cmd-str] (check-command cmd-str {}))
-  ([cmd-str {:keys [session-state strict-preview? block-pkg-installs?]
-             :or {strict-preview? true block-pkg-installs? true}}]
+  ([cmd-str {:keys [session-state strict-preview? block-pkg-installs? enrich?]
+             :or {strict-preview? true block-pkg-installs? true enrich? false}}]
    (let [strat (strategy/load-ubuntu-strategy)
-         path-execs (ubuntu/scan-path-executables)
-         cache-atom (atom (ubuntu/load-discovery-cache strat))
-         before-cache @cache-atom
-         segments (split-shell-segments cmd-str)
-         blocked-pms (set (map str/lower-case (or (:blocked_package_managers strat) [])))
+         ttl-ms (long (or (:l1_cache_ttl_ms strat) 30000))
+         now (System/currentTimeMillis)
+         path-execs (ubuntu/scan-path-executables ttl-ms)
+         path-sig (ubuntu/path-dir-signature)
          previewed (if session-state (or (:previewed @session-state) #{}) #{})
-         findings (atom [])
-         previews-recorded (atom [])]
+         cache-key [cmd-str (boolean strict-preview?) (boolean block-pkg-installs?) (boolean enrich?) previewed path-sig]
+         cached-hit (get @check-verdict-cache cache-key)]
+     (if (and cached-hit (< now (long (:expires-ms cached-hit))))
+       (let [res (:res cached-hit)
+             recs (:preview_recorded res)]
+         (when (and (not= "block" (:status res)) session-state (seq recs))
+           (swap! session-state update :previewed (fnil into #{}) recs))
+         res)
+       (let [cache-atom (atom (ubuntu/load-discovery-cache strat))
+             before-cache @cache-atom
+             segments (split-shell-segments cmd-str)
+             blocked-pms (set (map str/lower-case (or (:blocked_package_managers strat) [])))
+             findings (atom [])
+             previews-recorded (atom [])]
 
-     ;; 1. Cross-segment destructive chain check (e.g. rsync/cp && find ... -exec rm / -delete)
-     (let [had-sync? (atom false)]
-       (doseq [{:keys [cmd args]} segments]
-         (let [cname (norm-cmd-name cmd)]
-           (when (#{"rsync" "cp" "mv"} cname)
-             (reset! had-sync? true))
-           (when (and @had-sync?
-                      (= cname "find")
-                      (or (some #{"-delete"} args)
-                          (and (some #{"-exec" "-execdir"} args)
-                               (some #{"rm" "/bin/rm" "/usr/bin/rm"} args))))
-             (swap! findings conj
-                    {:code "DESTRUCTIVE_CHAIN"
-                     :severity "block"
-                     :command "find"
-                     :message "Blocked destructive 'find -delete / -exec rm' chained after copy/sync. Use 'rsync --delete' after previewing with '--dry-run' (-n)."})))))
-
-     ;; 2. Per-segment checks
-     (doseq [{:keys [cmd args redirs]} segments]
-       (let [cname (norm-cmd-name cmd)
-             builtin? (contains? shell-builtins cname)
-             local-path? (or (str/starts-with? cmd "/") (str/starts-with? cmd "./"))]
-         (when-not builtin?
-           ;; Package manager install block
-           (when (and block-pkg-installs? (contains? blocked-pms cname)
-                      (some #{"install" "-i" "upgrade"} args))
-             (swap! findings conj
-                    {:code "PACKAGE_INSTALL_BLOCKED"
-                     :severity "block"
-                     :command cname
-                     :message (str "Installing packages via '" cname "' is blocked by harness policy. Use discover_local_tool to find already-installed alternatives.")}))
-
-           ;; Missing binary check
-           (let [exists? (if local-path?
-                           (let [f (clojure.java.io/file cmd)]
-                             (and (.exists f) (.canExecute f)))
-                           (contains? path-execs cname))]
-             (if-not exists?
-               (swap! findings conj
-                      {:code "MISSING_BINARY"
-                       :severity "block"
-                       :command cname
-                       :message (str "Binary '" cname "' is not installed locally. Call discover_local_tool(intent, keyword='" cname "') instead of guessing.")})
-               (do
-                 ;; Destructive rm targets
-                 (when (and (= cname "rm")
-                            (some #(or (= % "--recursive")
-                                       (and (str/starts-with? % "-")
-                                            (not (str/starts-with? % "--"))
-                                            (str/includes? (subs % 1) "r")))
-                                  args)
-                            (some #(re-matches #"^(/|/\*|\.\.(?:/.*)?|~(?:/.*)?|\*)$" %) args))
+         ;; 1. Cross-segment destructive chain check (e.g. rsync/cp && find ... -exec rm / -delete / | xargs rm)
+         (let [had-sync? (atom false)
+               had-find? (atom false)]
+           (doseq [{:keys [cmd args]} segments]
+             (let [cname (norm-cmd-name cmd)]
+               (when (#{"rsync" "cp" "mv"} cname)
+                 (reset! had-sync? true))
+               (when (= cname "find")
+                 (reset! had-find? true)
+                 (when (and @had-sync?
+                            (or (some #{"-delete"} args)
+                                (and (some #{"-exec" "-execdir"} args)
+                                     (some #{"rm" "/bin/rm" "/usr/bin/rm"} args))))
                    (swap! findings conj
-                          {:code "DESTRUCTIVE_RM"
+                          {:code "DESTRUCTIVE_CHAIN"
                            :severity "block"
-                           :command "rm"
-                           :message "Blocked recursive 'rm' targeting root, parent, home, or top-level wildcard."}))
+                           :command "find"
+                           :message "Blocked destructive 'find -delete / -exec rm' chained after copy/sync. Use 'rsync --delete' after previewing with '--dry-run' (-n)."})))
+               (when (and @had-sync? @had-find? (= cname "xargs")
+                          (some #{"rm" "/bin/rm" "/usr/bin/rm"} args))
+                 (swap! findings conj
+                        {:code "DESTRUCTIVE_CHAIN"
+                         :severity "block"
+                         :command "xargs"
+                         :message "Blocked destructive 'find | xargs rm' chained after copy/sync. Use 'rsync --delete' after previewing with '--dry-run' (-n)."})))))
 
-                 ;; tar option order & archive format mismatch
-                 (when (= cname "tar")
-                   (let [{:keys [create? has-z? has-zstd? has-xz? has-auto? archive-file exclude-after-pos?]}
-                         (tar-create-info args)]
-                     (when (and create? exclude-after-pos?)
+         ;; 2. Per-segment checks
+         (doseq [{:keys [cmd args redirs]} segments]
+           (let [cname (norm-cmd-name cmd)
+                 builtin? (contains? shell-builtins cname)
+                 pseudo-token? (or (str/blank? cname)
+                                   (str/starts-with? cname "$")
+                                   (contains? #{"]" "]]" "[[" "["} cname)
+                                   (boolean (re-matches #"^[A-Za-z_][A-Za-z0-9_]*=.*" cmd)))
+                 local-path? (or (str/starts-with? cmd "/") (str/starts-with? cmd "./"))]
+             (when (and (not builtin?) (not pseudo-token?))
+               ;; Package manager install block
+               (when (and block-pkg-installs? (contains? blocked-pms cname)
+                          (some #{"install" "-i" "upgrade"} args))
+                 (swap! findings conj
+                        {:code "PACKAGE_INSTALL_BLOCKED"
+                         :severity "block"
+                         :command cname
+                         :message (str "Installing packages via '" cname "' is blocked by harness policy. Use installed alternatives.")}))
+
+               ;; Missing binary check
+               (let [exists? (if local-path?
+                               (let [^File f (io/file cmd)]
+                                 (and (.exists f) (.canExecute f)))
+                               (contains? path-execs cname))]
+                 (if-not exists?
+                   (when-not (guarded-command-probe? cmd-str cname)
+                     (let [hint (when enrich?
+                                  (str/trim (ubuntu/discover-yaml {:intent cmd-str
+                                                                   :keyword cname
+                                                                   :limit 1
+                                                                   :verbose? false
+                                                                   :max-flags 2})))]
                        (swap! findings conj
-                              {:code "FLAG_ORDER_ERROR"
+                              {:code "MISSING_BINARY"
                                :severity "block"
-                               :command "tar"
-                               :message "GNU tar requires '--exclude' options BEFORE source paths (e.g. 'tar --exclude=... -czf archive.tar.gz dir/')."}))
-                     (when (and create? archive-file (not has-auto?))
-                       (cond
-                         (and (or (str/ends-with? archive-file ".tar.zst") (str/ends-with? archive-file ".tzst"))
-                              (not has-zstd?))
-                         (swap! findings conj
-                                {:code "ARCHIVE_FORMAT_MISMATCH"
-                                 :severity "block"
-                                 :command "tar"
-                                 :message (str "Archive '" archive-file "' expects zstd compression, but '--zstd' (or '-a') was omitted.")})
+                               :command cname
+                               :message (if (not (str/blank? hint))
+                                          (str "Binary '" cname "' not installed.\n" hint)
+                                          (str "Binary '" cname "' is not installed locally. Call discover_local_tool(intent, keyword='" cname "') instead of guessing."))})))
+                   (do
+                     ;; Destructive rm targets
+                     (when (and (= cname "rm")
+                                (some #(or (= % "--recursive")
+                                           (and (str/starts-with? % "-")
+                                                (not (str/starts-with? % "--"))
+                                                (str/includes? (subs % 1) "r")))
+                                      args)
+                                (some #(re-matches #"^(/|/\*|\.\.(?:/.*)?|~(?:/.*)?|\*)$" %) args))
+                       (swap! findings conj
+                              {:code "DESTRUCTIVE_RM"
+                               :severity "block"
+                               :command "rm"
+                               :message "Blocked recursive 'rm' targeting root, parent, home, or top-level wildcard."}))
 
-                         (and (or (str/ends-with? archive-file ".tar.gz") (str/ends-with? archive-file ".tgz"))
-                              (not has-z?))
-                         (swap! findings conj
-                                {:code "ARCHIVE_FORMAT_MISMATCH"
-                                 :severity "block"
-                                 :command "tar"
-                                 :message (str "Archive '" archive-file "' expects gzip compression, but '-z'/'--gzip' (or '-a') was omitted.")})
+                     ;; tar option order & archive format mismatch
+                     (when (= cname "tar")
+                       (let [{:keys [create? has-z? has-zstd? has-xz? has-auto? archive-file exclude-after-pos?]}
+                             (tar-create-info args)]
+                         (when (and create? exclude-after-pos?)
+                           (swap! findings conj
+                                  {:code "FLAG_ORDER_ERROR"
+                                   :severity "block"
+                                   :command "tar"
+                                   :message "GNU tar requires '--exclude' options BEFORE source paths (e.g. 'tar --exclude=... -czf archive.tar.gz dir/')."}))
+                         (when (and create? archive-file (not has-auto?))
+                           (cond
+                             (and (or (str/ends-with? archive-file ".tar.zst") (str/ends-with? archive-file ".tzst"))
+                                  (not has-zstd?))
+                             (swap! findings conj
+                                    {:code "ARCHIVE_FORMAT_MISMATCH"
+                                     :severity "block"
+                                     :command "tar"
+                                     :message (str "Archive '" archive-file "' expects zstd compression, but '--zstd' (or '-a') was omitted.")})
 
-                         (and (or (str/ends-with? archive-file ".tar.xz") (str/ends-with? archive-file ".txz"))
-                              (not has-xz?))
-                         (swap! findings conj
-                                {:code "ARCHIVE_FORMAT_MISMATCH"
-                                 :severity "block"
-                                 :command "tar"
-                                 :message (str "Archive '" archive-file "' expects xz compression, but '-J'/'--xz' (or '-a') was omitted.")})))))
+                             (and (or (str/ends-with? archive-file ".tar.gz") (str/ends-with? archive-file ".tgz"))
+                                  (not has-z?))
+                             (swap! findings conj
+                                    {:code "ARCHIVE_FORMAT_MISMATCH"
+                                     :severity "block"
+                                     :command "tar"
+                                     :message (str "Archive '" archive-file "' expects gzip compression, but '-z'/'--gzip' (or '-a') was omitted.")})
 
-                 ;; rsync --delete preview gate
-                 (when (= cname "rsync")
-                   (let [{:keys [has-delete? has-dry-run?]} (rsync-flags-info args)]
-                     (when (and has-delete? strict-preview?)
-                       (if has-dry-run?
-                         (swap! previews-recorded conj "rsync")
-                         (when-not (contains? previewed "rsync")
+                             (and (or (str/ends-with? archive-file ".tar.xz") (str/ends-with? archive-file ".txz"))
+                                  (not has-xz?))
+                             (swap! findings conj
+                                    {:code "ARCHIVE_FORMAT_MISMATCH"
+                                     :severity "block"
+                                     :command "tar"
+                                     :message (str "Archive '" archive-file "' expects xz compression, but '-J'/'--xz' (or '-a') was omitted.")})))))
+
+                     ;; rsync preview & --delete gate
+                     (when (= cname "rsync")
+                       (let [{:keys [has-delete? has-dry-run?]} (rsync-flags-info args)]
+                         (when has-dry-run?
+                           (swap! previews-recorded conj "rsync"))
+                         (when (and has-delete? strict-preview? (not has-dry-run?)
+                                    (not (contains? previewed "rsync")))
                            (swap! findings conj
                                   {:code "UNPREVIEWED_MUTATION"
                                    :severity "block"
                                    :command "rsync"
-                                   :message "rsync with '--delete' removes destination files. Run a preview with '--dry-run' (-n) first in this session, then run without '--dry-run'."}))))))
+                                   :message "rsync with '--delete' removes destination files. Run a preview with '--dry-run' (-n) first in this session, then run without '--dry-run'."}))))
 
-                 ;; In-place shell redirect truncation (> same file)
-                 (let [overwrite-targets (->> redirs
-                                              (filter #(contains? #{">" "&>"} (:op %)))
-                                              (map #(norm-path-token (:target %)))
-                                              (remove #(or (str/blank? %) (= % "/dev/null")))
-                                              set)
-                       pos-args (->> args
-                                     (remove #(str/starts-with? % "-"))
-                                     (map norm-path-token)
-                                     set)]
-                   (doseq [t overwrite-targets]
-                     (when (contains? pos-args t)
-                       (swap! findings conj
-                              {:code "INPLACE_REDIRECT_TRUNCATION"
-                               :severity "block"
-                               :command cname
-                               :message (str "Shell redirection '> " t "' truncates '" t "' before '" cname "' can read it. Use an in-place flag (e.g. 'sed -i') or a temporary file.")}))))
+                     ;; In-place shell redirect truncation (> same file)
+                     (let [overwrite-targets (->> redirs
+                                                  (filter #(contains? #{">" "&>"} (:op %)))
+                                                  (map #(norm-path-token (:target %)))
+                                                  (remove #(or (str/blank? %) (= % "/dev/null")))
+                                                  set)
+                           pos-args (->> args
+                                         (remove #(str/starts-with? % "-"))
+                                         (map norm-path-token)
+                                         set)]
+                       (doseq [t overwrite-targets]
+                         (when (contains? pos-args t)
+                           (swap! findings conj
+                                  {:code "INPLACE_REDIRECT_TRUNCATION"
+                                   :severity "block"
+                                   :command cname
+                                   :message (str "Shell redirection '> " t "' truncates '" t "' before '" cname "' can read it. Use an in-place flag (e.g. 'sed -i') or a temporary file.")}))))
 
-                 ;; Unknown long flag check against live cached man/--help flags
-                 (doseq [f (check-unknown-long-flags cname args path-execs strat cache-atom)]
-                   (swap! findings conj f))))))))
+                     ;; Unknown long flag check against live cached man/--help flags
+                     (doseq [f (check-unknown-long-flags cname args path-execs strat cache-atom enrich?)]
+                       (swap! findings conj f))))))))
 
-     (when (not= before-cache @cache-atom)
-       (ubuntu/save-discovery-cache! strat @cache-atom))
+         (when (not= before-cache @cache-atom)
+           (ubuntu/save-discovery-cache! strat @cache-atom))
 
-     (let [fs @findings
-           recs (vec (distinct @previews-recorded))
-           blocked? (some #(= "block" (:severity %)) fs)]
-       (when (and (not blocked?) session-state (seq recs))
-         (swap! session-state update :previewed (fnil into #{}) recs))
-       (cond-> {:status (if blocked? "block" "allow")
-                :findings fs}
-         (seq recs) (assoc :preview_recorded recs))))))
+         (let [fs @findings
+               recs (vec (distinct @previews-recorded))
+               blocked? (some #(= "block" (:severity %)) fs)
+               res (cond-> {:status (if blocked? "block" "allow")
+                            :findings fs}
+                     (seq recs) (assoc :preview_recorded recs))]
+           (when (and (not blocked?) session-state (seq recs))
+             (swap! session-state update :previewed (fnil into #{}) recs))
+           (swap! check-verdict-cache
+                  (fn [m]
+                    (let [m' (if (>= (count m) 256) {} m)]
+                      (assoc m' cache-key {:expires-ms (+ now ttl-ms) :res res}))))
+           res))))))
 
 (defn format-check-text
   "Render compact guardrail verdict for MCP or hook stderr output."
   [{:keys [status findings preview_recorded]}]
   (let [head (str (str/upper-case status)
                   (when (seq preview_recorded)
-                    (str " (recorded dry-run preview: " (str/join ", " preview_recorded) ")")))]
+                    (str " (DRY_RUN_ONLY: preview recorded for " (str/join ", " preview_recorded)
+                         "; 0 files modified — re-run without --dry-run/-n to apply)")))]
     (if (empty? findings)
       head
       (str head "\n"

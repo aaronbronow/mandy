@@ -64,22 +64,26 @@
          distinct)))
 
 (defn display-help []
-  (println "🌿 Mandy - Manual Discovery Tool (Beta 0.2 Ubuntu)")
+  (println "🌿 Mandy - Manual Discovery Tool (Beta 0.4 Ubuntu)")
   (println "")
   (println "Usage:")
   (println "  mandy <command>                 Start interactive TUI")
   (println "  mandy <command> | cat           Output raw YAMLScript data")
-  (println "  mandy discover [opts]           Live Ubuntu tool discovery (dpkg + man + --help)")
+  (println "  mandy discover [opts]           Live Ubuntu tool discovery (Lean YAML default)")
   (println "  mandy check [opts] <cmd>        PreToolUse guardrail check (exit 0 allow, 2 block)")
-  (println "  mandy mcp                       Start stdio JSON-RPC 2.0 MCP server")
+  (println "  mandy preflight [opts] <prompt> Zero-turn prompt preflight hints for absent/man-less CLIs")
+  (println "  mandy mcp [--expose-check]      Start stdio JSON-RPC 2.0 MCP server")
   (println "  mandy -k <keyword>              CLI Deep Search (Agent-First Ubuntu YAML)")
   (println "  mandy -K <keyword>              TUI Deep Search across all manuals")
   (println "  mandy <file.md>                 Render local Markdown via pandoc")
   (println "")
-  (println "Ubuntu Discover Options:")
+  (println "Ubuntu Discover & Check Options:")
   (println "  -i, --intent <text>       Natural-language intent for tool discovery")
   (println "  -k, --keyword <term>      Optional binary name or topic keyword")
-  (println "  -n, --limit <N>           Max verified candidates (1-5, default 3)")
+  (println "  -n, --limit <N>           Max verified candidates (1-5)")
+  (println "  --verbose                 Emit full dpkg provenance & interface metadata")
+  (println "  --enrich / --no-enrich    Attach Lean YAML hints on check BLOCK (default on for --hook-stdin)")
+  (println "  --hook-stdin              Read harness hook JSON payload from stdin")
   (println "  --json                    Output results as JSON")
   (println "")
   (println "Discovery Options:")
@@ -94,7 +98,7 @@
 
 (defn- parse-discover-opts [args]
   (loop [xs args
-         opts {:intent "" :keyword nil :limit nil :json? false :help? false}]
+         opts {:intent "" :keyword nil :limit nil :json? false :verbose? false :help? false}]
     (if (empty? xs)
       opts
       (let [[a b & more] xs]
@@ -104,6 +108,9 @@
 
           (= "--json" a)
           (recur (rest xs) (assoc opts :json? true))
+
+          (= "--verbose" a)
+          (recur (rest xs) (assoc opts :verbose? true))
 
           (#{"-i" "--intent"} a)
           (recur more (assoc opts :intent (or b "")))
@@ -122,7 +129,7 @@
 
 (defn- parse-check-opts [args]
   (loop [xs args
-         opts {:cmd-parts [] :json? false :hook-stdin? false :strict-preview? true :block-pkg-installs? true :help? false}]
+         opts {:cmd-parts [] :json? false :hook-stdin? false :strict-preview? true :block-pkg-installs? true :enrich? nil :help? false}]
     (if (empty? xs)
       (assoc opts :command (str/join " " (:cmd-parts opts)))
       (let [a (first xs)]
@@ -132,6 +139,8 @@
           (= "--hook-stdin" a) (recur (rest xs) (assoc opts :hook-stdin? true))
           (= "--no-strict-preview" a) (recur (rest xs) (assoc opts :strict-preview? false))
           (= "--allow-pkg-installs" a) (recur (rest xs) (assoc opts :block-pkg-installs? false))
+          (= "--enrich" a) (recur (rest xs) (assoc opts :enrich? true))
+          (= "--no-enrich" a) (recur (rest xs) (assoc opts :enrich? false))
           :else (recur (rest xs) (update opts :cmd-parts conj a)))))))
 
 (defn run-discovery [command args is-debug is-strip is-tty]
@@ -193,7 +202,7 @@
             tui-cmd (if (.exists mandy-ui-bin)
                       [(.getAbsolutePath mandy-ui-bin)]
                       ["bun" "run" (str mandy-root "/src/index.ts")])
-            pb (ProcessBuilder. (into tui-cmd args))
+            pb (ProcessBuilder. ^java.util.List (into tui-cmd args))
             env (.environment pb)
             _ (.put env "MANDY_PAYLOAD_PATH" (.getAbsolutePath tmp-file))
             _ (.redirectInput pb java.lang.ProcessBuilder$Redirect/INHERIT)
@@ -206,25 +215,48 @@
 (defn -main [& args]
   (cond
     (= "mcp" (first args))
-    (do (mcp/serve-stdio!)
-        (System/exit 0))
+    (let [expose-check? (boolean (some #{"--expose-check"} (rest args)))]
+      (mcp/serve-stdio! {:expose-check? expose-check?})
+      (System/exit 0))
 
     (= "discover" (first args))
-    (let [{:keys [intent keyword limit json? help?]} (parse-discover-opts (rest args))]
+    (let [{:keys [intent keyword limit json? verbose? help?]} (parse-discover-opts (rest args))]
       (when (or help? (and (str/blank? intent) (str/blank? keyword)))
         (display-help)
         (System/exit 0))
-      (let [res (ubuntu/discover {:intent (if (str/blank? intent) keyword intent)
-                                  :keyword keyword
-                                  :limit limit})]
+      (let [eff-intent (if (str/blank? intent) keyword intent)]
         (if json?
-          (println (json/generate-string res))
-          (print (ubuntu/format-discovery-yaml res)))
+          (let [res (ubuntu/discover {:intent eff-intent
+                                      :keyword keyword
+                                      :limit limit
+                                      :verbose? verbose?})]
+            (println (json/generate-string res)))
+          (print (ubuntu/discover-yaml {:intent eff-intent
+                                        :keyword keyword
+                                        :limit limit
+                                        :verbose? verbose?})))
         (flush)
         (System/exit 0)))
 
+    (= "preflight" (first args))
+    (let [xs (rest args)
+          hook-stdin? (boolean (some #{"--hook-stdin"} xs))
+          arg-prompt (->> xs (remove #(= "--hook-stdin" %)) (str/join " "))
+          prompt (if hook-stdin?
+                   (try
+                     (let [raw (slurp *in*)
+                           parsed (when-not (str/blank? raw) (json/parse-string raw true))]
+                       (or (:prompt parsed) (:user_prompt parsed) (:message parsed) arg-prompt ""))
+                     (catch Exception _ arg-prompt))
+                   arg-prompt)
+          hint (ubuntu/preflight prompt)]
+      (when-not (str/blank? hint)
+        (println hint)
+        (flush))
+      (System/exit 0))
+
     (= "check" (first args))
-    (let [{:keys [command json? hook-stdin? strict-preview? block-pkg-installs? help?]} (parse-check-opts (rest args))]
+    (let [{:keys [command json? hook-stdin? strict-preview? block-pkg-installs? enrich? help?]} (parse-check-opts (rest args))]
       (when help?
         (display-help)
         (System/exit 0))
@@ -237,14 +269,16 @@
             tool-name (:tool_name stdin-payload)
             hook-cmd (or (get-in stdin-payload [:tool_input :command])
                          (:command stdin-payload))
-            target-cmd (if hook-stdin? hook-cmd command)]
+            target-cmd (if hook-stdin? hook-cmd command)
+            eff-enrich? (if (nil? enrich?) hook-stdin? enrich?)]
         (when (and hook-stdin? tool-name
                    (not (contains? #{"Bash" "bash" "run_shell_command" "shell"} (str tool-name))))
           (System/exit 0))
         (when (str/blank? target-cmd)
           (System/exit 0))
         (let [res (check/check-command target-cmd {:strict-preview? strict-preview?
-                                                   :block-pkg-installs? block-pkg-installs?})
+                                                   :block-pkg-installs? block-pkg-installs?
+                                                   :enrich? eff-enrich?})
               blocked? (= "block" (:status res))]
           (cond
             json? (do (println (json/generate-string res)) (flush))

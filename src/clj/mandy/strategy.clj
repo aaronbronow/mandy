@@ -15,6 +15,11 @@
    :default_limit 2
    :max_flags_per_tool 5
    :max_flag_desc_chars 75
+   :lean_max_flags_per_tool 3
+   :lean_max_flag_desc_chars 48
+   :lean_unmatched_flag_cap 1
+   :l1_cache_ttl_ms 30000
+   :preflight_specialized_tools ["b2sum" "tree" "pdftotext" "pdfunite" "ys" "busybox"]
    :min_candidate_score 40
    :help_timeout_ms 1500
    :man_deep_timeout_ms 2500
@@ -42,11 +47,11 @@
 (defn- find-strategy-file
   "Find plugins/ubuntu_discovery.ys across MANDY_ROOT, cwd, or jar parent dir."
   []
-  (let [jar-parent (try
-                     (-> (System/getProperty "java.class.path")
-                         (str/split (re-pattern (System/getProperty "path.separator")))
-                         first io/file .getAbsoluteFile .getParentFile)
-                     (catch Exception _ nil))
+  (let [cp (System/getProperty "java.class.path")
+        first-cp (when-not (str/blank? cp)
+                   (first (str/split cp (re-pattern (System/getProperty "path.separator")))))
+        ^File jar-parent (when-not (str/blank? first-cp)
+                           (.getParentFile (.getAbsoluteFile (io/file first-cp))))
         candidates (cond-> []
                      (System/getenv "MANDY_ROOT")
                      (conj (io/file (System/getenv "MANDY_ROOT") "plugins" "ubuntu_discovery.ys"))
@@ -54,7 +59,8 @@
                      (conj (io/file "plugins" "ubuntu_discovery.ys"))
                      jar-parent
                      (conj (io/file jar-parent "plugins" "ubuntu_discovery.ys")
-                           (io/file (.getParentFile jar-parent) "plugins" "ubuntu_discovery.ys")))]
+                           (when-let [^File gp (.getParentFile jar-parent)]
+                             (io/file gp "plugins" "ubuntu_discovery.ys"))))]
     (first (filter #(and % (.exists ^File %) (.isFile ^File %)) candidates))))
 
 (defn- strip-ys-header [content]
@@ -64,15 +70,27 @@
       content)))
 
 (defn- eval-ys-text
-  "Evaluate YAMLScript text via `ys -J`, falling back to clj-yaml."
-  [^File file content]
-  (let [res (when file
-              (try
-                (sh "ys" "-J" (.getAbsolutePath file))
-                (catch Exception _ nil)))]
-    (if (and res (zero? (:exit res)) (not (str/blank? (:out res))))
-      (json/parse-string (:out res) true)
-      (yaml/parse-string (strip-ys-header content) true))))
+  "Evaluate YAMLScript text. Fast-path !yamlscript/v0/data via in-process clj-yaml, reserving `ys -J` for code mode."
+  [^File file ^String content]
+  (let [trimmed (str/trim (or content ""))
+        data-mode? (str/starts-with? trimmed "!yamlscript/v0/data")]
+    (if data-mode?
+      (try
+        (yaml/parse-string (strip-ys-header content) true)
+        (catch Exception _
+          (let [res (when file
+                      (try
+                        (sh "ys" "-J" (.getAbsolutePath file))
+                        (catch Exception _ nil)))]
+            (when (and res (zero? (:exit res)) (not (str/blank? (:out res))))
+              (json/parse-string (:out res) true)))))
+      (let [res (when file
+                  (try
+                    (sh "ys" "-J" (.getAbsolutePath file))
+                    (catch Exception _ nil)))]
+        (if (and res (zero? (:exit res)) (not (str/blank? (:out res))))
+          (json/parse-string (:out res) true)
+          (yaml/parse-string (strip-ys-header content) true))))))
 
 (defn load-ubuntu-strategy
   "Load Ubuntu discovery strategy from plugins/ubuntu_discovery.ys, memoized by mtime."

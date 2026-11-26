@@ -9,6 +9,11 @@ exact_binary_limit: 1
 default_limit: 2
 max_flags_per_tool: 5
 max_flag_desc_chars: 75
+lean_max_flags_per_tool: 3
+lean_max_flag_desc_chars: 48
+lean_unmatched_flag_cap: 1
+l1_cache_ttl_ms: 30000
+preflight_specialized_tools: [b2sum, tree, pdftotext, pdfunite, ys, busybox]
 min_candidate_score: 40
 help_timeout_ms: 1500
 man_deep_timeout_ms: 2500
@@ -64,6 +69,30 @@ stopwords:
   - create
   - convert
   - extract
+  - installed
+  - local
+  - locally
+  - equivalent
+  - otherwise
+  - only
+  - write
+  - inside
+  - relative
+  - sorted
+  - every
+  - each
+  - another
+  - value
+  - columns
+  - header
+  - row
+  - rows
+  - just
+  - one
+  - per
+  - matching
+  - saved
+  - save
 
 intent_synonyms:
   pdf: [pdf, poppler, pdftotext, pdfunite, pdfinfo, pdfimages]

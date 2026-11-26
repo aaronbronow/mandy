@@ -3,11 +3,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+NATIVE_BIN="$REPO_ROOT/mandy"
 UBERJAR="$REPO_ROOT/target/mandy-0.1.0-standalone.jar"
 
 export MANDY_ROOT="${MANDY_ROOT:-$REPO_ROOT}"
 
-if [[ -f "$UBERJAR" ]]; then
+if [[ -x "$NATIVE_BIN" ]]; then
+  exec "$NATIVE_BIN" "$@"
+elif [[ -f "$UBERJAR" ]]; then
   exec java -jar "$UBERJAR" "$@"
 else
   exec clojure -M -m mandy.main "$@"

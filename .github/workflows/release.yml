@@ -31,7 +31,7 @@ jobs:
       - name: Setup GraalVM & Native Image
         uses: graalvm/setup-graalvm@v1
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -40,7 +40,16 @@ jobs:
         with: { cli: 1.12.4.1618 }
 
       - name: Build Mandy Native Binary
-        run: clojure -T:build native
+        run: |
+          make jar
+          native-image \
+            -jar target/mandy-0.1.0-standalone.jar \
+            mandy \
+            --no-fallback \
+            --initialize-at-build-time \
+            -H:+UnlockExperimentalVMOptions \
+            -H:IncludeResources="(base|ubuntu_discovery)\\.ys" \
+            -H:+ReportExceptionStackTraces
 
       # --- BUN / TYPESCRIPT SECTION ---
       - name: Setup Bun
@@ -49,13 +58,13 @@ jobs:
       - name: Build mandy-ui (Native)
         run: |
           bun install
-          bun build ./src/index.ts --compile --outfile mandy-ui
+          bun build ./src/index.ts --compile --outfile bin/mandy-ui
 
       # --- PACKAGING SECTION ---
       - name: Create Release Package
         run: |
           mkdir -p dist/bin
-          cp mandy mandy-ui dist/bin/
+          cp mandy bin/mandy-ui dist/bin/
           tar -czvf mandy-v0.1.0-${{ matrix.platform }}.tar.gz -C dist .
 
       - name: Upload Artifact

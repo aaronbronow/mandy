@@ -10,7 +10,15 @@ interface TaskSpec {
   prompt: string;
 }
 
-type Arm = 'baseline' | 'harness_mandy_guardrail' | 'harness_mandy_full' | 'mandy_primary' | 'mandy_fallback';
+type Arm =
+  | 'baseline'
+  | 'harness_mandy_guardrail'
+  | 'harness_mandy_full'
+  | 'mandy_primary'
+  | 'mandy_fallback'
+  | 'v4_hook_enrich'
+  | 'v4_hook_preflight'
+  | 'v4_mcp_terse';
 
 interface RunResult {
   task_id: string;
@@ -35,6 +43,7 @@ interface RunResult {
   inference_ms: number;
   discover_ms: number;
   check_ms: number;
+  preflight_ms: number;
   mandy_ms: number;
   bash_ms: number;
   transcript: Array<{ turn: number; tool?: string; args?: any; exit_code?: number; ms?: number; note?: string }>;
@@ -117,14 +126,23 @@ class McpClient {
     return await this.request('tools/list', {});
   }
 
-  async callDiscover(intent: string, keyword?: string, limit?: number): Promise<{ text: string; ms: number }> {
+  async callDiscover(intent: string, keyword?: string, limit?: number, verbose = false): Promise<{ text: string; ms: number }> {
     const t0 = performance.now();
     const args: Record<string, any> = { intent };
     if (keyword) args.keyword = keyword;
     if (limit) args.limit = limit;
+    if (verbose) args.verbose = true;
     const res = await this.request('tools/call', { name: 'discover_local_tool', arguments: args });
-    const ms = Math.round(performance.now() - t0);
+    const ms = +(performance.now() - t0).toFixed(2);
     const text = res?.content?.[0]?.text ?? JSON.stringify(res);
+    return { text, ms };
+  }
+
+  async preflightPrompt(prompt: string): Promise<{ text: string; ms: number }> {
+    const t0 = performance.now();
+    const res = await this.request('tools/call', { name: 'preflight_prompt', arguments: { prompt } });
+    const ms = +(performance.now() - t0).toFixed(2);
+    const text = res?.content?.[0]?.text ?? '';
     return { text, ms };
   }
 
@@ -133,13 +151,13 @@ class McpClient {
     stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/mandy/reset_session' }) + '\n');
   }
 
-  async checkCommand(command: string): Promise<{ blocked: boolean; text: string; ms: number }> {
+  async checkCommand(command: string, enrich = false): Promise<{ blocked: boolean; text: string; ms: number }> {
     const t0 = performance.now();
     const res = await this.request('tools/call', {
       name: 'check_local_command',
-      arguments: { command, require_dry_run_preview: true, block_package_installs: true },
+      arguments: { command, require_dry_run_preview: true, block_package_installs: true, enrich },
     });
-    const ms = Math.round(performance.now() - t0);
+    const ms = +(performance.now() - t0).toFixed(2);
     const text = res?.content?.[0]?.text ?? JSON.stringify(res);
     const blocked = text.trimStart().startsWith('BLOCK');
     return { blocked, text, ms };
@@ -263,6 +281,29 @@ const MANDY_TOOL = {
   },
 };
 
+const MANDY_TOOL_TERSE = {
+  type: 'function',
+  function: {
+    name: 'discover_local_tool',
+    description: 'Check local Ubuntu CLI binary & flags (Lean YAML).',
+    parameters: {
+      type: 'object',
+      properties: {
+        intent: { type: 'string', description: 'task' },
+        keyword: { type: 'string', description: 'cmd/topic' },
+        verbose: { type: 'boolean', description: 'full dpkg info' },
+      },
+      required: ['intent'],
+    },
+  },
+};
+
+function firstCmdToken(cmdStr: string): string | undefined {
+  const m = cmdStr.trim().match(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*([^\s;|&<>]+)/);
+  if (!m || !m[1]) return undefined;
+  return m[1].split('/').pop();
+}
+
 function systemPromptForArm(arm: Arm): string {
   const common = [
     'You are an autonomous Ubuntu CLI engineer operating strictly inside the current workspace directory.',
@@ -271,8 +312,14 @@ function systemPromptForArm(arm: Arm): string {
     'Once all requested output files are verified, reply briefly with the result.',
   ].join('\n');
 
-  if (arm === 'baseline') {
+  if (arm === 'baseline' || arm === 'v4_hook_enrich' || arm === 'v4_hook_preflight') {
     return common + '\nUse bash/read_file/write_file/edit_file to inspect available tools and complete the task.';
+  }
+  if (arm === 'v4_mcp_terse') {
+    return (
+      common +
+      '\nUse bash/files. Before unfamiliar, man-less, or absent CLIs (or when bash/guardrail fails), call discover_local_tool; never run NOT_INSTALLED tools.'
+    );
   }
   if (arm === 'mandy_primary' || arm === 'harness_mandy_full') {
     const hookNote =
@@ -307,12 +354,20 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
   setupFixture(task.id, workdir);
   if (mcp) mcp.resetSession();
 
-  const useGuardrail = arm === 'harness_mandy_guardrail' || arm === 'harness_mandy_full';
-  const tools = arm === 'baseline' ? CORE_TOOLS : [...CORE_TOOLS, MANDY_TOOL];
-  const messages: Array<Record<string, any>> = [
-    { role: 'system', content: systemPromptForArm(arm) },
-    { role: 'user', content: task.prompt },
-  ];
+  const useGuardrail =
+    arm === 'harness_mandy_guardrail' ||
+    arm === 'harness_mandy_full' ||
+    arm === 'v4_hook_enrich' ||
+    arm === 'v4_hook_preflight' ||
+    arm === 'v4_mcp_terse';
+  const isV4 = arm === 'v4_hook_enrich' || arm === 'v4_hook_preflight' || arm === 'v4_mcp_terse';
+  const hookOnly = arm === 'v4_hook_enrich' || arm === 'v4_hook_preflight';
+  const tools =
+    arm === 'baseline' || hookOnly
+      ? CORE_TOOLS
+      : arm === 'v4_mcp_terse'
+        ? [...CORE_TOOLS, MANDY_TOOL_TERSE]
+        : [...CORE_TOOLS, MANDY_TOOL];
 
   let turns = 0;
   let promptTokens = 0;
@@ -328,8 +383,25 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
   let inferenceMs = 0;
   let discoverMs = 0;
   let checkMs = 0;
+  let preflightMs = 0;
   let bashMs = 0;
   const transcript: RunResult['transcript'] = [];
+
+  let userPrompt = task.prompt;
+  if (arm === 'v4_hook_preflight' && mcp) {
+    const pf = await mcp.preflightPrompt(task.prompt);
+    preflightMs += pf.ms;
+    const hint = pf.text.trim();
+    if (hint) {
+      userPrompt = `${task.prompt}\n\n[ENV_HINTS]\n${hint}`;
+      transcript.push({ turn: 0, tool: 'preflight_prompt', ms: pf.ms, note: hint });
+    }
+  }
+
+  const messages: Array<Record<string, any>> = [
+    { role: 'system', content: systemPromptForArm(arm) },
+    { role: 'user', content: userPrompt },
+  ];
 
   const tStart = performance.now();
 
@@ -377,15 +449,15 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
         let blocked = false;
         let checkNote = '';
         if (useGuardrail && mcp) {
-          const chk = await mcp.checkCommand(cmdStr);
+          const chk = await mcp.checkCommand(cmdStr, isV4);
           checkMs += chk.ms;
           if (chk.blocked) {
             blocked = true;
             preventedBadExecs++;
             transcript.push({ turn, tool: 'bash_blocked', args: cmdStr, ms: chk.ms, note: chk.text });
             toolOutput = JSON.stringify({ exit_code: 2, blocked_by_guardrail: true, stdout: '', stderr: chk.text });
-          } else if (chk.text.includes('recorded dry-run preview')) {
-            checkNote = chk.text + ' (Preview only: no files were modified yet; re-run without --dry-run/-n to apply.)';
+          } else if (chk.text.includes('DRY_RUN_ONLY') || chk.text.includes('recorded dry-run preview')) {
+            checkNote = chk.text;
           }
         }
         if (!blocked) {
@@ -400,11 +472,30 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
           transcript.push({ turn, tool: 'bash', args: cmdStr, exit_code: res.exit_code, ms: res.ms });
           const payload: Record<string, any> = { exit_code: res.exit_code, stdout: res.stdout, stderr: res.stderr };
           if (checkNote) payload.guardrail_note = checkNote;
+          if (
+            hookOnly &&
+            mcp &&
+            res.exit_code !== 0 &&
+            (res.exit_code === 127 ||
+              /command not found|Unknown task|unrecognized option|unknown option|invalid option|unexpected argument|unknown flag|unrecognized argument|illegal option|no such option/i.test(
+                res.stderr + '\n' + res.stdout,
+              ))
+          ) {
+            const disc = await mcp.callDiscover(task.prompt, firstCmdToken(cmdStr), 1, false);
+            discoverMs += disc.ms;
+            payload.mandy_hint = disc.text.trim();
+            transcript.push({ turn, tool: 'post_bash_enrich', args: { cmd: firstCmdToken(cmdStr) }, ms: disc.ms });
+          }
           toolOutput = JSON.stringify(payload);
         }
       } else if (name === 'discover_local_tool' && mcp) {
         mandyCalls++;
-        const res = await mcp.callDiscover(String(args.intent ?? ''), args.keyword ? String(args.keyword) : undefined, args.limit ? Number(args.limit) : undefined);
+        const res = await mcp.callDiscover(
+          String(args.intent ?? ''),
+          args.keyword ? String(args.keyword) : undefined,
+          args.limit ? Number(args.limit) : undefined,
+          Boolean(args.verbose),
+        );
         discoverMs += res.ms;
         transcript.push({ turn, tool: 'discover_local_tool', args, ms: res.ms });
         toolOutput = res.text;
@@ -474,9 +565,10 @@ async function runSingle(task: TaskSpec, arm: Arm, mcp: McpClient | null): Promi
     hallucinated_flag_count: hallucinatedFlagCount,
     wall_clock_ms: wallClockMs,
     inference_ms: inferenceMs,
-    discover_ms: discoverMs,
-    check_ms: checkMs,
-    mandy_ms: discoverMs + checkMs,
+    discover_ms: +discoverMs.toFixed(2),
+    check_ms: +checkMs.toFixed(2),
+    preflight_ms: +preflightMs.toFixed(2),
+    mandy_ms: +(discoverMs + checkMs + preflightMs).toFixed(2),
     bash_ms: bashMs,
     transcript,
   };
@@ -507,6 +599,7 @@ function summarizeArm(arm: Arm, runs: RunResult[]) {
     mean_inference_ms: mean(r => r.inference_ms),
     mean_discover_ms: mean(r => r.discover_ms),
     mean_check_ms: mean(r => r.check_ms),
+    mean_preflight_ms: mean(r => r.preflight_ms),
     mean_mandy_ms: mean(r => r.mandy_ms),
     mean_bash_ms: mean(r => r.bash_ms),
   };
@@ -516,8 +609,8 @@ async function main() {
   const argv = process.argv.slice(2);
   let limit = Infinity;
   let taskFilter: Set<string> | null = null;
-  let arms: Arm[] = ['baseline', 'harness_mandy_guardrail', 'harness_mandy_full'];
-  let outName = 'gemma4_e2b_v3_guardrail_results.json';
+  let arms: Arm[] = ['baseline', 'v4_hook_enrich', 'v4_hook_preflight', 'v4_mcp_terse'];
+  let outName = 'gemma4_e2b_v4_optimized_results.json';
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--limit' && argv[i + 1]) limit = Number(argv[++i]);

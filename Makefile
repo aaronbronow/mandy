@@ -62,13 +62,19 @@ clean::
 
 test: test-debug test-sanitized test-tokens test-tui-select test-tui-quit test-tui-search test-ubuntu
 
-test-ubuntu: $(UBER-JAR)
-	./bin/mandy discover --intent "case insensitive regex search by file type" --keyword rg
-	./bin/mandy discover --intent "compute 256-bit blake2 checksum" --keyword b2sum
-	./bin/mandy discover --intent "find json files" --keyword fd
-	./bin/mandy check --no-strict-preview "rg -i -n -t py retry_limit src/"
-	@./bin/mandy check "tar -czf bundle.tar.gz project/ --exclude='*.log'" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
-	@./bin/mandy check "rsync -av --delete src_dir/ dst_dir/" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
+test-ubuntu: mandy
+	./mandy discover --intent "case insensitive regex search by file type" --keyword rg
+	./mandy discover --intent "compute 256-bit blake2 checksum" --keyword b2sum --verbose
+	./mandy discover --intent "find json files" --keyword fd
+	./mandy preflight "Evaluate and convert config.yaml using the locally installed ys CLI tool."
+	./mandy check --no-strict-preview "rg -i -n -t py retry_limit src/"
+	./mandy check --no-strict-preview "if command -v yq >/dev/null 2>&1; then yq '.port' app.yaml; fi"
+	./mandy check --no-strict-preview "command -v exiftool >/dev/null 2>&1 || echo UNAVAILABLE"
+	@./mandy check "tar -czf bundle.tar.gz project/ --exclude='*.log'" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
+	@./mandy check "rsync -av --delete src_dir/ dst_dir/" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
+	@./mandy check "rsync -av src/ dst/ && find dst/ -type f -print0 | xargs -0 rm" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
+	@./mandy check --enrich "b2sum --length-bits 256 artifact.bin" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
+	@./mandy check --enrich "fd -e json project/" >/dev/null 2>&1 && exit 1 || test $$? -eq 2
 
 test-debug: $(CLOJURE)
 	clojure -M -m mandy.main pwd --debug

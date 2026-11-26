@@ -7,7 +7,7 @@ Mandy is a manual discovery tool that turns crusty man pages into structured, in
 Mandy is split into a **Native Parser** and a **Bun-compiled TUI**.
 
 ### 1. Quick Install (Linux & macOS)
-Run the following to install the latest binaries to `/usr/local/bin`:
+Run the following to install the latest pre-compiled native binaries (with automatic source native compilation via GraalVM + Bun if a release tarball is unavailable — zero JVM runtime required):
 ```bash
 curl -sSL https://raw.githubusercontent.com/aaronbronow/mandy/main/scripts/install.sh | bash
 ```
@@ -95,26 +95,30 @@ Mandy can search across all installed manual pages using the `-k` (CLI) or `-K` 
 
 ## 🤖 Agentic Ubuntu Discovery, PreToolUse Guardrails & MCP
 
-Mandy exposes live, zero-vector-DB Ubuntu CLI discovery (`PATH` verification, `dpkg` package provenance, `man` + `--help` flag extraction, `side_effects`/`usage_order` metadata, and `(realpath, mtime)` caching) plus a deterministic `O(1)` `PreToolUse` command guardrail (`mandy check` / `check_local_command`) for local LLM harnesses (Claude Code, OpenCode, Goose, Pi, Gemini CLI):
+Mandy compiles to a **GraalVM native binary** (`make mandy` → zero JVM runtime in production) and exposes live, zero-vector-DB Ubuntu CLI discovery (`$PATH` verification, `dpkg` provenance, `man` + `--help` flag extraction, `side_effects`/`usage_order` metadata, dir-`mtime` L1/L2 caching, and Lean YAML by default or `--verbose` full metadata), zero-turn prompt preflight (`mandy preflight`), and a sub-millisecond warm `PreToolUse` command guardrail (`mandy check --hook-stdin --enrich` / `check_local_command`) for local LLM harnesses (Claude Code, OpenCode, Goose, Pi, Gemini CLI):
 
 ```bash
-# Direct CLI discovery (Agent-First YAML)
+# Direct CLI discovery (Lean YAML default; add --verbose for full dpkg provenance)
 ./bin/mandy discover --intent "case insensitive regex search by file type" --keyword rg
 
-# Deterministic PreToolUse guardrail (exit 0 allow, exit 2 block; or --hook-stdin JSON)
-./bin/mandy check "tar -czf bundle.tar.gz project/ --exclude='*.log'"
+# Zero-turn deterministic prompt preflight (emits hints only for absent/specialized tools)
+./bin/mandy preflight "Convert config.yaml using ys"
 
-# Persistent stdio JSON-RPC 2.0 MCP server (`discover_local_tool` + `check_local_command`)
+# Deterministic PreToolUse guardrail (exit 0 allow, exit 2 block with Lean hints)
+./bin/mandy check --enrich "tar -czf bundle.tar.gz project/ --exclude='*.log'"
+
+# Persistent stdio JSON-RPC 2.0 MCP server (`discover_local_tool` default; `--expose-check` optional)
 ./bin/mandy mcp
 ```
 
-See [skills/mandy-ubuntu-discovery/SKILL.md](./skills/mandy-ubuntu-discovery/SKILL.md) for drop-in MCP + `PreToolUse` hook configs and usage guidelines.
+See [skills/mandy-ubuntu-discovery/SKILL.md](./skills/mandy-ubuntu-discovery/SKILL.md) for drop-in MCP, `preflight`, and `PreToolUse` hook configs.
 
 ### Benchmark Highlights (`gemma4:e2b` on `lal`, 6 GB VRAM)
-Evaluated across 18-task (`54`-run) and expanded 20-task (`60`-run) Ubuntu CLI suites (`num_ctx=8192`, `100%` GPU offload) — full results in [BENCHMARK_UBUNTU_GEMMA.md](./BENCHMARK_UBUNTU_GEMMA.md):
+Evaluated across 18-task (`54`-run) and expanded 20-task (`60`-run / `80`-run) Ubuntu CLI suites (`num_ctx=8192`, `100%` GPU offload) — full results in [BENCHMARK_UBUNTU_GEMMA.md](./BENCHMARK_UBUNTU_GEMMA.md):
+- **v4 Native Zero-Schema Hooks + Preflight (`n=20`, target ≤ +15% tokens)**: Using the compiled GraalVM native binary (`81.4 ms` init, `0.37 ms` L2 `discover` hit, `0.37–0.52 ms` warm `check`), `v4_hook_preflight` **beat Baseline total tokens by `-6.4%` (`44,398` vs. `47,437`)**, lifted pass rate from **55.0% (`11/20`)** to **65.0% (`13/20`)**, kept **0 unwanted mutations** and **0 `exit 127`** errors, and ran **2.57× faster** (`6.27 s → 2.44 s` mean wall clock).
 - **Guardrail + Hybrid Discovery (`n=20`, v3)**: Pairing `mandy check` pre-execution hooks with Hybrid Primary discovery lifted pass rate from **55.0% (`11/20`)** to **65.0% (`13/20`)** with **0 unwanted mutations**, **0 `exit 127`** errors, and **48.3%** faster mean wall-clock latency (`5.96 s → 3.08 s`).
-- **PreToolUse Safety Only (`n=20`, v3)**: `harness_mandy_guardrail` cut failed OS shell calls **100%** (`15 → 0`), intercepted **4** broken/unpreviewed commands (`tar` flag order, unpreviewed `rsync --delete`, missing binary) at `54.8 ms` average check overhead, reduced completion tokens **81.1%** (`581 → 110`), and ran **3.06× faster** (`5.96 s → 1.95 s`).
-- **Compact v2 Discovery (`n=18`)**: Adaptive `exact_binary_limit: 1`, `max_flags_per_tool: 5`, and session-scoped MCP query deduplication shrunk single-tool payloads **68%–72%** and cut total multi-turn tokens **33%–35%** vs. v1 (`106.6k → 71.2k` Primary; `88.4k → 57.8k` Fallback).
+- **PreToolUse Safety Only (`n=20`, v3)**: `harness_mandy_guardrail` cut failed OS shell calls **100%** (`15 → 0`), reduced completion tokens **81.1%** (`581 → 110`), and ran **3.06× faster** (`5.96 s → 1.95 s`).
+- **Compact v2 Discovery (`n=18`)**: Adaptive `exact_binary_limit: 1`, `max_flags_per_tool: 5`, and session-scoped MCP query deduplication shrunk single-tool payloads **68%–72%** and cut total multi-turn tokens **33%–35%** vs. v1.
 - **Zero-Shot Router Eval (`functiongemma` 268M)**: Tested as a pre-router across 18 prompts and found unsuitable out of the box (`0/18` `discover_local_tool` calls).
 
 ## 🧠 Dev Notes

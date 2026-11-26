@@ -238,4 +238,60 @@ Results saved in [gemma4_e2b_v3_guardrail_results.json](file:///home/aaron/dev/m
    - In `harness_mandy_full`, `gemma4:e2b` stopped after running the `rsync -avn` preview on `rsync_mirror_delete` without re-running without `-n` (`0` mutations, `FAIL`), whereas it completed the two-phase apply cleanly on `safe_rsync_prune_preserve` and in both `harness_mandy_guardrail` `rsync` tasks.
    - On `absent_yq_yaml_port`, `gemma4:e2b` wrapped `yq` inside `if command -v yq &> /dev/null; then PORT=$(yq ...); fi` inside a single multi-line bash call; Mandy's static splitter flagged `yq` inside the guarded `if` branch and `$PORT` inside `[[ -n "$PORT" ]]` (`MISSING_BINARY`, `21–22 ms`). Skipping `command -v`/`which` conditional branches and `$VAR` operands inside `[[ ... ]]` is a clean future refinement for `check.clj`.
 
+---
+
+## 9. Zero-JVM Native Binary, L1/L2 Cache, Lean YAML & ≤ +15% Token Optimization (`v4`, `n = 20`)
+
+To eliminate production JVM startup, push total tokens well inside `+15%` of Baseline (`<= 54,552` tokens), and preserve `2x–3x` wall-clock speedups:
+
+1. **Zero-JVM GraalVM Native Binary**: Compiled via `make mandy` (`Oracle GraalVM 25.0.4`, `--no-fallback --initialize-at-build-time`, `24.45 MB` stripped Linux x64 ELF binary `./mandy`, zero Clojure reflection warnings). [bin/mandy](file:///home/aaron/dev/mandy/bin/mandy), [install.sh](file:///home/aaron/dev/mandy/scripts/install.sh), and [release.yml](file:///home/aaron/dev/mandy/.github/workflows/release.yml) prioritize pre-compiled native binaries or source native compilation—users in production never execute through a JVM.
+2. **Short-Lived `mtime`-Validated L1/L2 Cache ([ubuntu.clj](file:///home/aaron/dev/mandy/src/clj/mandy/ubuntu.clj), [check.clj](file:///home/aaron/dev/mandy/src/clj/mandy/check.clj))**:
+   - L1 `$PATH` cache validated against directory `mtime` stamps (`30 s` TTL, `< 0.1 ms`), plus an in-memory `mtime`-checked mirror of `ubuntu-discovery-cache.json` (`schema_version: 3` with cached `dpkg` provenance).
+   - Fast exact-binary path skipping `apropos` / `dpkg-query` when an exact binary (`limit: 1`) matches in Lean mode.
+   - L2 pre-encoded response cache (`discover-yaml`) and L2 verdict cache (`check-command`), bypassing parsing, ranking, and YAML encoding on repeat queries.
+3. **Lean YAML & Relevance-Gated Flag Stripping ([ubuntu.clj](file:///home/aaron/dev/mandy/src/clj/mandy/ubuntu.clj), [ubuntu_discovery.ys](file:///home/aaron/dev/mandy/plugins/ubuntu_discovery.ys))**:
+   - Splits hyphenated/dotted query tokens (`256-bit`, `app.yaml`), applies greedy token-coverage selection, and drops zero-match filler flags in Lean mode (`<= 3` flags, `48`-char descriptions, `usage_order`/`side_effects` metadata only; `--verbose` restores full Agent-First YAML).
+4. **Hook Enrichment & Zero-Turn Preflight ([check.clj](file:///home/aaron/dev/mandy/src/clj/mandy/check.clj), [main.clj](file:///home/aaron/dev/mandy/src/clj/mandy/main.clj), [mcp.clj](file:///home/aaron/dev/mandy/src/clj/mandy/mcp.clj))**:
+   - `mandy check --hook-stdin --enrich` attaches a 1–2 tool Lean YAML hint directly to `MISSING_BINARY` / `UNKNOWN_FLAG` blocks (`0` extra flags on `FLAG_ORDER_ERROR` / `UNPREVIEWED_MUTATION`), while allowing guarded `command -v <cmd>` and `[[ ... ]]` test expressions.
+   - `mandy preflight` (`UserPromptSubmit` hook / MCP `preflight_prompt`) emits a compact `ENV_HINTS` block on Turn 0 only when the prompt mentions absent tools or `preflight_specialized_tools` (`b2sum`, `tree`, `pdftotext`, `pdfunite`, `ys`, `busybox`)—returning empty (`0` tokens) on routine prompts.
+   - `mandy mcp` defaults to a terse `discover_local_tool` schema (`check_local_command` hidden from `tools/list` unless `--expose-check` is passed).
+
+### Native Binary & Cache Micro-Timings (`ubuntu-dev`)
+
+| Operation (`./bin/mandy` → `./mandy` ELF) | Measured Latency | Comparison vs. Prior JVM Build |
+|---|---:|---|
+| Cold CLI (`check`, `preflight`, `discover`) | `87.1 – 92.6 ms` | **~10× faster** than `919.1 ms` JVM MCP init |
+| Native MCP `initialize` | `81.4 ms` | **11.3× faster** (`919.1 ms → 81.4 ms`) |
+| Warm `discover_local_tool` (`rg`, disk cache warm) | `7.96 ms` | **34× faster** (`271.6 ms → 7.96 ms`) |
+| L2 pre-encoded response cache hit (`rg`) | **`0.37 ms`** | Bypasses scan, ranking, and YAML encode |
+| Session dedup hit (`rg`) | **`0.13 ms`** | Down from `0.5 ms` |
+| Warm `check_local_command` (`rg` / `b2sum`) | **`0.37 – 0.52 ms`** | **~35×–50× faster** (`15.7–27.9 ms → < 0.6 ms`) |
+
+### v4 Benchmark Results (`n = 20`, `80` Runs on `lal`)
+Results saved in [gemma4_e2b_v4_optimized_results.json](file:///home/aaron/dev/mandy/bench/results/gemma4_e2b_v4_optimized_results.json):
+
+| Metric | Baseline (Control) | `v4_hook_enrich` (Zero-Schema Hooks) | `v4_hook_preflight` (Hooks + Zero-Turn Preflight) | `v4_mcp_terse` (Terse MCP + Hook) |
+|---|---:|---:|---:|---:|
+| **Pass Rate** | 55.0% (`11/20`) | 50.0% (`10/20`) | **65.0% (`13/20`)** | 50.0% (`10/20`) |
+| **Unwanted Disk Mutations** | 0 | **0** | **0** | 1 |
+| **Prevented Bad Executions** | 0 | **11** | **4** | **5** |
+| **Failed OS Shell Calls (`exit != 0`)** | 15 | 9 | 8 | **1 (-93.3%)** |
+| **`exit 127` (`command not found`)** | 3 | **0 (-100%)** | **0 (-100%)** | **0 (-100%)** |
+| **Mean Prompt Tokens** | 1,792.8 (med 1,247.0) | 2,211.6 (med 1,353.0) | 2,037.5 (med 1,565.0) | 2,445.2 (med 1,949.5) |
+| **Mean Completion Tokens** | 579.1 (med 74.5) | 610.5 (med 72.5) | **182.5 (-68.5%)** (med 77.5) | 508.7 (med 91.0) |
+| **Mean Total Tokens** | 2,371.9 (med 1,387.5) | 2,822.1 (med 1,455.0) | **2,219.9 (-6.4%)** (med 1,645.0) | 2,953.9 (med 2,031.5) |
+| **Total Tokens Sum (20 tasks)** | 47,437 | 56,441 (`+19.0%`) | **44,398 (`-6.4%`)** | 59,077 (`+24.5%`) |
+| **Mean Turns** | 3.10 | 3.50 | **3.15** | 3.55 |
+| **Mean Wall-Clock Latency** | 6,274.6 ms (med 1,428.0) | 6,454.6 ms (med 1,246.5) | **2,441.7 ms (-61.1%, 2.57× faster)** (med 1,171.5) | 5,611.9 ms (med 1,558.0) |
+| **Mean Inference Latency** | 6,259.4 ms | 6,289.6 ms | **2,308.8 ms** | 5,274.1 ms |
+| **Mean Mandy Latency (discover/check/preflight)** | 0.0 ms | `0 / 145.4 / 0` ms | `0 / 114.6 / 215.5` ms | `225.2 / 99.1 / 0` ms |
+
+### Key Conclusions & Remaining Edge Cases from v4
+1. **Target Exceeded (`v4_hook_preflight`: `-6.4%` Total Tokens, `65.0%` Pass Rate, `2.57×` Faster)**: Zero-schema hooks paired with Turn-0 deterministic `preflight` beat Baseline outright by **`3,039` tokens (`44,398` vs. `47,437`)**, tied the highest pass rate (**`65.0%`**, unlocking `poppler_pdf_text`, `b2sum_verify_file`, and `ys_yaml_to_json`), kept **`0` unwanted mutations** and **`0` `exit 127`**, and cut mean wall clock from `6.27 s` to `2.44 s`.
+2. **Why `v4_mcp_terse` & `v4_hook_enrich` Stayed Above `+15%`**:
+   - On `rsync_mirror_delete` in `v4_hook_enrich`, the model previewed `rsync -avn` *without* `--delete`, so the preview gate did not unlock `rsync --delete` and re-blocked it `4` more times (`7,772` tokens).
+   - On `absent_exiftool_report` (`v4_hook_*`), `command -v exiftool` stripped `command` in `parse-segment-tokens`, flagging `-v` as `MISSING_BINARY` (the task still passed cleanly in `3` turns).
+   - On `safe_rsync_prune_preserve` in `v4_mcp_terse`, `gemma4:e2b` chained `rsync ... && find dst_dir/ ... -print0 | xargs -0 rm`, bypassing `DESTRUCTIVE_CHAIN` (which currently detects `find -delete` and `find -exec rm`, not `xargs rm`) and wiping `keep.txt`. Extending `DESTRUCTIVE_CHAIN` to piped `xargs rm` and fixing `rsync -avn` / `command -v` parsing are the clear next hardening items.
+   *(Post-benchmark update: All three edge cases above — keeping `command -v`/`-V` intact in `parse-segment-tokens`, recording `rsync -n`/`--dry-run` previews even without `--delete`, and blocking piped `find ... | xargs rm` under `DESTRUCTIVE_CHAIN` — were subsequently fixed in [check.clj](file:///home/aaron/dev/mandy/src/clj/mandy/check.clj) and verified via `make test-ubuntu` and native MCP session tests.)*
+
 
